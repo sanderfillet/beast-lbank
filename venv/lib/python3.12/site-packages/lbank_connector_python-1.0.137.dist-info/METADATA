@@ -1,0 +1,91 @@
+Metadata-Version: 2.1
+Name: lbank-connector-python
+Version: 1.0.137
+Summary: LBANK connector for the public API, private API, and websockets.
+Home-page: 
+License: MIT
+Keywords: LBANK,Public API,python,connector
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Financial and Insurance Industry
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE.md
+Requires-Dist: aiohttp ==3.9.3
+Requires-Dist: aiosignal ==1.3.1
+Requires-Dist: async-timeout ==4.0.3
+Requires-Dist: attrs ==23.2.0
+Requires-Dist: certifi ==2024.2.2
+Requires-Dist: charset-normalizer ==3.3.2
+Requires-Dist: frozenlist ==1.4.1
+Requires-Dist: idna ==3.6
+Requires-Dist: multidict ==6.0.5
+Requires-Dist: pycryptodome ==3.20.0
+Requires-Dist: requests ==2.31.0
+Requires-Dist: urllib3 ==2.2.1
+Requires-Dist: websocket-client ==1.7.0
+Requires-Dist: yarl ==1.9.4
+
+# Installation
+* pip install --upgrade lbank-connector-python -i https://pypi.org/simple
+## Contract Call
+* You need to apply for the corresponding api_key and api_secret
+* The api_key and sign parameters will be encapsulated and added to the request parameters internally, users do not need to worry about it.
+* API example
+```python
+from lbank.old_api import BlockHttpClient
+import logging
+api_key = ""
+api_secret = ""
+# service address
+base_url = "https://api.lbkex.com/"
+# Encryption method
+sign_method = "RSA"
+# is_json is a boolean type. If True, the Content-Type is `application/json`.
+# Otherwise, it is `application/x-www-form-urlencoded`.
+client = BlockHttpClient(
+    sign_method=sign_method,
+    api_key=api_key,
+    api_secret=api_secret,
+    base_url=base_url,
+    log_level=logging.DEBUG,
+    is_json=True
+)
+# Pairs api
+api_url = "v2/currencyPairs.do"
+res = client.http_request("get", api_url)
+print(res)
+# withdrawConfigs api
+api_url = "v2/withdrawConfigs.do"
+payload = {
+    "assetCode": "btc"
+}
+res = client.http_request("get", api_url, payload=payload)
+print(res)
+payload = {}
+response = client.http_request("post", "v2/user_info.do", payload=payload)
+print(response)
+```
+* Websocket example
+```python
+from lbank.websocket.websocket_client import LbankWebsocketClient
+def sub_deep_data():
+    ws_client = LbankWebsocketClient(
+        base_url="",
+        on_message=on_message,
+    )
+    subscribe_msg = {
+    }
+    ws_client.send(subscribe_msg)
+
+
+def on_message(ws_client, msg):
+    print(f"msg:{msg}")
+
+
+if __name__ == '__main__':
+    sub_deep_data()
+````

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "beast-lbank"
+version = "0.1.0"
+description = "Trading bridge for LBank exchange"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "gunicorn>=21.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "aiosqlite>=0.19.0",
+    "structlog>=24.0.0",
+    "python-dotenv>=1.0.0",
+    "ccxt>=4.0.0",
+    "pandas>=2.0.0",
+    "lbank-connector-python>=1.0.137",
+]
+
+[project.optional-dependencies]
+prod = [
+    "gunicorn>=21.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
