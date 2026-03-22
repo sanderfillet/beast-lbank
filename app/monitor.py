@@ -1543,7 +1543,7 @@ async def _standalone_main() -> None:
     """
     from app.config import get_settings
     from app.database import TradeDatabase
-    from app.exchange import ExchangeError, HyperliquidClient
+    from app.exchange import LBankExchangeError as ExchangeError, LBankClient as HyperliquidClient
     from app.logging_setup import setup_logging
     from app.telegram import TelegramNotifier
 

@@ -92,7 +92,7 @@ def create_app(
             "status": "ok",
             "exchange_connected": exchange_connected,
             "active_trades": active_count,
-            "testnet": settings.hl_use_testnet,
+            "testnet": False,
         }
 
     # --- Webhook Endpoint ---
