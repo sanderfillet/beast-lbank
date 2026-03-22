@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from enum import StrEnum
 
 class LogFormat(StrEnum):
     JSON = "json"
     CONSOLE = "console"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -107,9 +108,11 @@ class Settings(BaseSettings):
     log_format: LogFormat = Field(default=LogFormat.JSON)
 
     def is_exchange_configured(self) -> bool:
-	"""Check if LBank API credentials are configured."""
-    	return bool(self.lbank_api_key and self.lbank_api_secret)
+        """Check if LBank API credentials are configured."""
+        return bool(self.lbank_api_key and self.lbank_api_secret)
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+EOF
