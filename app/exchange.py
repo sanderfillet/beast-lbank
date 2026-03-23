@@ -422,3 +422,38 @@ class LBankClient:
         except Exception as e:
             logger.error("get_open_orders_failed", symbol=symbol, error=str(e))
             return []
+
+    def get_account_value(self) -> float | None:
+        """Get total account equity in USDT."""
+        try:
+            res = self._client.http_request(
+                "post",
+                "v2/supplement/user_info_account.do",
+                payload={},
+            )
+            if res and "data" in res:
+                return float(res["data"].get("totalBalance", 0))
+            return None
+        except Exception as e:
+            logger.error("get_account_value_failed", error=str(e))
+            return None
+
+    def calculate_order_size(self, symbol: str, size_usd: float) -> float | None:
+        """Calculate order size in contracts from USD size."""
+        try:
+            price = self.get_mark_price(symbol)
+            if not price:
+                return None
+            return round(size_usd / price, 4)
+        except Exception as e:
+            logger.error("calculate_order_size_failed", symbol=symbol, error=str(e))
+            return None
+
+    def cancel_all_orders(self, symbol: str) -> None:
+        """Cancel all open orders for a symbol."""
+        try:
+            orders = self.get_open_orders(symbol)
+            for order in orders:
+                self.cancel_order(symbol, order.get("orderId", ""))
+        except Exception as e:
+            logger.error("cancel_all_orders_failed", symbol=symbol, error=str(e))
