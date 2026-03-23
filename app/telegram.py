@@ -26,12 +26,12 @@ class TelegramNotifier:
 
     def __init__(self, settings: Settings) -> None:
         self._enabled = settings.telegram_enabled
-        self._token = settings.telegram_bot_token
-        self._chat_id = settings.telegram_chat_id
+        self._token = settings.beast_telegram_token
+        self._chat_id = settings.beast_telegram_chat_id
         self._client = httpx.AsyncClient(timeout=10.0) if self._enabled else None
         self._slope_label = (
             f"{settings.candle_timeframe} delta EMA slope"
-            if settings.slope_method.value == "delta_ema_slope"
+            if settings.slope_method == "delta_ema_slope"
             else f"{settings.candle_timeframe} EMA slope"
         )
 

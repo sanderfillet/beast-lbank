@@ -52,7 +52,7 @@ from app.models import (
 if TYPE_CHECKING:
     from app.config import Settings
     from app.database import TradeDatabase
-    from app.exchange import HyperliquidClient
+    from app.exchange import LBankClient
     from app.models import Signal
     from app.telegram import TelegramNotifier
 
@@ -79,7 +79,7 @@ class TradeMonitor:
         self,
         settings: Settings,
         database: TradeDatabase,
-        exchange: HyperliquidClient | None,
+        exchange: LBankClient | None,
         notifier: TelegramNotifier | None = None,
     ) -> None:
         self._settings = settings
@@ -705,7 +705,7 @@ class TradeMonitor:
             slope_smooth_bars=self._settings.slope_smooth_bars,
             delta_smooth_bars=self._settings.delta_smooth_bars,
             scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
-            slope_method=self._settings.slope_method.value,
+            slope_method=self._settings.slope_method,
             use_delta_ema=self._settings.use_delta_ema,
             delta_ntz=self._settings.delta_ntz,
             use_atr_regime=self._settings.use_atr_regime,
@@ -1180,7 +1180,7 @@ class TradeMonitor:
             slope_smooth_bars=self._settings.slope_smooth_bars,
             delta_smooth_bars=self._settings.delta_smooth_bars,
             scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
-            slope_method=self._settings.slope_method.value,
+            slope_method=self._settings.slope_method,
             use_delta_ema=self._settings.use_delta_ema,
             delta_ntz=self._settings.delta_ntz,
             use_atr_regime=self._settings.use_atr_regime,
@@ -1409,7 +1409,7 @@ class TradeMonitor:
                     slope_smooth_bars=self._settings.slope_smooth_bars,
                     delta_smooth_bars=self._settings.delta_smooth_bars,
                     scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
-                    slope_method=self._settings.slope_method.value,
+                    slope_method=self._settings.slope_method,
                     use_delta_ema=self._settings.use_delta_ema,
                     delta_ntz=self._settings.delta_ntz,
                     use_atr_regime=self._settings.use_atr_regime,
@@ -1543,7 +1543,7 @@ async def _standalone_main() -> None:
     """
     from app.config import get_settings
     from app.database import TradeDatabase
-    from app.exchange import LBankExchangeError as ExchangeError, LBankClient as HyperliquidClient
+    from app.exchange import LBankExchangeError as ExchangeError, LBankClient as LBankClient
     from app.logging_setup import setup_logging
     from app.telegram import TelegramNotifier
 
@@ -1562,7 +1562,12 @@ async def _standalone_main() -> None:
     exchange_client = None
     if settings.is_exchange_configured():
         try:
-            exchange_client = HyperliquidClient(settings)
+            exchange_client = LBankClient(
+                api_key=settings.lbank_api_key,
+                api_secret=settings.lbank_api_secret,
+                base_url=settings.lbank_base_url,
+                sign_method=settings.lbank_sign_method,
+            )
             exchange_client.connect()
             logger.info("exchange_client_ready")
         except ExchangeError as e:
