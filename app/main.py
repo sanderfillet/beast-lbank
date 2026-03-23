@@ -48,10 +48,7 @@ def create_application():
     # Telegram notifier
     notifier = None
     if settings.beast_telegram_token and settings.beast_telegram_chat_id:
-        notifier = TelegramNotifier(
-            token=settings.beast_telegram_token,
-            chat_id=settings.beast_telegram_chat_id,
-        )
+        notifier = TelegramNotifier(settings)
 
     # Monitor
     monitor = TradeMonitor(
