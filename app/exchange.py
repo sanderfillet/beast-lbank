@@ -72,6 +72,7 @@ class LBankClient:
                 api_secret=self.api_secret,
                 base_url=self.base_url,
                 log_level=logging.WARNING,
+                is_json=False,
             )
 
             # CCXT for candle data and prices
