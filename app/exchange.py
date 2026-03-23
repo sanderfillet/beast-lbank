@@ -92,9 +92,9 @@ class LBankClient:
 
     def _contract_symbol(self, symbol: str) -> str:
         """Convert symbol to LBank contract format.
-        e.g. 'BTC' -> 'btc_usdt'
+        e.g. 'BTC' -> 'btcusdt'
         """
-        return f"{symbol.lower()}_usdt"
+        return f"{symbol.lower()}usdt"
 
     def get_mark_price(self, symbol: str) -> float | None:
         """Get current mark price for a symbol."""
