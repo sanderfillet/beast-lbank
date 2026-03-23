@@ -105,7 +105,12 @@ class LBankClient:
                 payload={"symbol": contract_symbol},
             )
             if res and "data" in res:
-                return float(res["data"]["ticker"]["latest"])
+                data = res["data"]
+                # Handle both list and dict response formats
+                if isinstance(data, list):
+                    return float(data[0]["ticker"]["latest"])
+                elif isinstance(data, dict):
+                    return float(data["ticker"]["latest"])
             return None
         except Exception as e:
             logger.error("get_mark_price_failed", symbol=symbol, error=str(e))
