@@ -132,7 +132,7 @@ class LBankClient:
         api_key: str,
         api_secret: str,
         base_url: str = "https://api.lbkex.com",
-        sign_method: str = "HmacSHA256",
+        sign_method: str = "RSA",
         timeout: int = 10,
     ) -> None:
         self.api_key = api_key
