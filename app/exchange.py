@@ -152,25 +152,35 @@ class LBankClient:
         raw = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars
         return raw[:36]
 
-    def _sign(self, params: dict[str, Any]) -> str:
-        """Produce a HmacSHA256 signature for params dict.
-
-        Steps (per LBank docs):
-            1. Sort params alphabetically by key.
-            2. Encode as key=val&key=val query string.
-            3. MD5-hash → uppercase.
-            4. HmacSHA256 the MD5 result with api_secret → hex.
+    def _sign(self, params: dict) -> str:
+        """LBank RSA signature.
+        1. Sort params alphabetically.
+        2. Build key=val&key=val string.
+        3. MD5 → uppercase.
+        4. Sign with RSA private key (SHA256) → Base64.
         """
+        import base64
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+    
         sorted_pairs = "&".join(
             f"{k}={v}" for k, v in sorted(params.items(), key=lambda x: x[0])
         )
         md5_upper = hashlib.md5(sorted_pairs.encode()).hexdigest().upper()
-        signature = hmac.new(
-            self.api_secret.encode(),
+    
+        # Load private key
+        private_key = serialization.load_der_private_key(
+            base64.b64decode(self.api_secret),
+            password=None,
+        )
+    
+        # Sign with RSA-SHA256
+        signature = private_key.sign(
             md5_upper.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        return signature
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return base64.b64encode(signature).decode()
 
     def _auth_headers_and_extras(self) -> tuple[dict[str, str], dict[str, str]]:
         """Return (request headers, extra params to merge into payload).
