@@ -25,11 +25,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.logging_setup import get_logger
-from app.models import CloseReason, TradeSide, TradeStage, MarketType
+from app.models import CloseReason, TradeSide, TradeStage
 
 if TYPE_CHECKING:
     from app.config import Settings
-    from app.exchange import HyperliquidClient
+    from app.exchange import LBankClient
     from app.models import Trade
 
 logger = get_logger("app.lifecycle")
@@ -75,9 +75,9 @@ def _check_trigger(
 def _move_stop_loss(
     trade: Trade,
     new_sl_price: float,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
     sl_max_retries: int = 3,
-    ) -> bool:
+) -> bool:
     """Place new SL, then cancel old one. Mutates trade in-place.
 
     Uses trade.remaining_quantity for the SL size so the order
@@ -91,60 +91,40 @@ def _move_stop_loss(
         trade.sl_price = new_sl_price
         return True
 
-    try:
-        old_order_id = int(trade.sl_order_id) if trade.sl_order_id else None
-    except (ValueError, TypeError):
-        old_order_id = None
+    old_order_id = trade.sl_order_id or None
 
-    # Retry SL placement up to sl_max_retries times
     for attempt in range(1, sl_max_retries + 1):
-        if trade.market_type == MarketType.SPOT:
-            result = exchange.place_spot_stop_loss(
-                symbol=trade.symbol,
-                size=trade.remaining_quantity,
-                trigger_price=new_sl_price,
-            )
-            # Cancel old SL manually for spot
-            if result.success and old_order_id is not None:
-                try:
-                    exchange.exchange.cancel(trade.symbol, old_order_id)
-                except Exception as e:
-                    logger.warning("old_spot_sl_cancel_failed", order_id=old_order_id, error=str(e))
-        else:
-            result = exchange.modify_stop_loss(
-                symbol=trade.symbol,
-                side=trade.side,
-                size=trade.remaining_quantity,
-                new_trigger_price=new_sl_price,
-                old_order_id=old_order_id,
-            )
+        result = exchange.modify_stop_loss(
+            symbol=trade.symbol,
+            side=trade.side,
+            size=trade.remaining_quantity,
+            new_trigger_price=new_sl_price,
+            old_order_id=old_order_id,
+        )
 
-            if result.success:
-                old_sl = trade.sl_price
-                trade.sl_order_id = result.order_id
-                trade.sl_price = new_sl_price
-                logger.info(
-                    "sl_move_audit",
-                    trade_id=trade.id,
-                    symbol=trade.symbol,
-                    old_sl=old_sl,
-                    new_sl=new_sl_price,
-                    new_order_id=result.order_id,
-                    size=trade.remaining_quantity,
-                )
-                return True
-
-            logger.warning(
-                "move_sl_attempt_failed",
+        if result.success:
+            old_sl = trade.sl_price
+            trade.sl_order_id = result.order_id
+            trade.sl_price = new_sl_price
+            logger.info(
+                "sl_move_audit",
                 trade_id=trade.id,
-                attempt=attempt,
-                max_attempts=sl_max_retries,
+                symbol=trade.symbol,
+                old_sl=old_sl,
                 new_sl=new_sl_price,
-                error=result.error,
+                new_order_id=result.order_id,
+                size=trade.remaining_quantity,
             )
-            
-        # After first attempt, old SL is still live (place-before-cancel),
-        # so retrying is safe
+            return True
+
+        logger.warning(
+            "move_sl_attempt_failed",
+            trade_id=trade.id,
+            attempt=attempt,
+            max_attempts=sl_max_retries,
+            new_sl=new_sl_price,
+            error=result.error,
+        )
 
     # All retries exhausted — old SL stays, trade.sl_price unchanged
     logger.error(
@@ -178,18 +158,14 @@ def close_trade(
     if close_price is not None:
         trade.close_price = close_price
 
-    # Calculate P&L if we have the data
     if close_price is not None and trade.entry_price > 0:
         direction = 1.0 if trade.side == TradeSide.LONG else -1.0
-        # P&L from remaining position at close_price
         remaining_pnl = direction * (close_price - trade.entry_price) * trade.remaining_quantity
-        # P&L from TP1 partial close (if it happened)
         tp1_pnl = 0.0
         if trade.partial_exit_done and trade.tp1_fill_price is not None:
             closed_qty = trade.quantity - trade.remaining_quantity
             tp1_pnl = direction * (trade.tp1_fill_price - trade.entry_price) * closed_qty
         trade.pnl_usd = round(remaining_pnl + tp1_pnl, 2)
-        # Percentage based on full entry notional
         entry_notional = trade.entry_price * trade.quantity
         if entry_notional > 0:
             trade.pnl_pct = round((trade.pnl_usd / entry_notional) * 100, 4)
@@ -220,7 +196,7 @@ def _handle_entry(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
     """ENTRY → BREAKEVEN: Move SL to true breakeven (entry + round-trip fees).
 
@@ -234,7 +210,6 @@ def _handle_entry(
     if not _check_trigger(mark_price, trade.entry_price, settings.trade_be_trigger_pct, trade.side):
         return StageResult()
 
-    # True breakeven accounts for round-trip fees
     fee_mult = (settings.exchange_fee_pct * 2) / 100
     if trade.side == TradeSide.LONG:
         true_be = trade.entry_price * (1 + fee_mult)
@@ -260,11 +235,12 @@ def _handle_breakeven(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
-    """BREAKEVEN → PARTIAL_EXIT: Close 50% when partial exit trigger hit.
-    LONG:  mark >= entry * 1.01  (+1.0%)
-    SHORT: mark <= entry * 0.99
+    """BREAKEVEN → PARTIAL_EXIT: Close partial_exit_fraction of position at TP1.
+
+    LONG:  mark >= entry * (1 + tp1_trigger_pct/100)
+    SHORT: mark <= entry * (1 - tp1_trigger_pct/100)
     """
     if not _check_trigger(
         mark_price,
@@ -276,8 +252,7 @@ def _handle_breakeven(
 
     partial_size = round(trade.quantity * settings.partial_exit_fraction, 8)
 
-    # Size floor: if partial close notional is below minimum (HL minimum),
-    # bump it up to the minimum so the API accepts the order.
+    # Size floor: ensure partial close notional meets minimum
     min_notional = settings.min_close_notional_usd
     partial_notional = partial_size * mark_price
     if partial_notional < min_notional and mark_price > 0:
@@ -291,19 +266,15 @@ def _handle_breakeven(
             adjusted_notional=round(partial_size * mark_price, 2),
         )
 
-    # Market-close the partial position
     if exchange and exchange.is_connected:
         # Check actual position size to guard against TP1 exchange order race
-        if trade.market_type == MarketType.SPOT:
-            actual_size = exchange.get_spot_balance(trade.symbol)
-        else:
-            position = exchange.get_position(trade.symbol)
-            actual_size = abs(position.size) if position else 0.0
+        position = exchange.get_position(trade.symbol)
+        actual_size = abs(position.size) if position else 0.0
 
         expected_remaining = round(trade.quantity - partial_size, 8)
 
         if actual_size <= expected_remaining + 1e-9:
-            # TP1 order already filled on exchange — skip market close
+            # TP1 already filled on exchange — skip market close
             logger.info(
                 "tp1_already_filled_on_exchange",
                 trade_id=trade.id,
@@ -312,11 +283,9 @@ def _handle_breakeven(
                 expected_remaining=expected_remaining,
             )
         else:
-            if trade.market_type == MarketType.SPOT:
-                close_result = exchange.close_spot_position(trade.symbol, partial_size)
-            else:
-                close_result = exchange.close_position(trade.symbol, partial_size)
-
+            close_result = exchange.close_position(
+                trade.symbol, trade.side, size=partial_size
+            )
             if not close_result.success:
                 logger.error(
                     "partial_close_failed",
@@ -325,12 +294,9 @@ def _handle_breakeven(
                 )
                 return StageResult(error=close_result.error)
 
-        # Cancel TP1 exchange order — may already be filled, that's ok
+        # Cancel TP1 exchange order — may already be filled, that's fine
         if trade.tp1_order_id:
-            try:
-                exchange.exchange.cancel(trade.symbol, int(trade.tp1_order_id))
-            except Exception as e:
-                logger.warning("cancel_tp1_failed", trade_id=trade.id, error=str(e))
+            exchange.cancel_order(trade.symbol, trade.tp1_order_id, order_type="plan")
 
     # Update trade state
     trade.remaining_quantity = round(trade.quantity - partial_size, 8)
@@ -338,7 +304,7 @@ def _handle_breakeven(
     trade.tp1_fill_price = mark_price
     trade.tp1_order_id = None
 
-    # Re-place SL with remaining_quantity (old SL has wrong size)
+    # Re-place SL with remaining_quantity (old SL has wrong size after partial close)
     sl_ok = _move_stop_loss(trade, trade.sl_price, exchange, settings.sl_max_retries)
 
     logger.info(
@@ -352,16 +318,17 @@ def _handle_breakeven(
     error = None if sl_ok else "SL re-placement failed after partial exit — trade may have no SL"
     return StageResult(transitioned=True, new_stage=TradeStage.PARTIAL_EXIT, error=error)
 
+
 def _handle_partial_exit(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
     """PARTIAL_EXIT → TRAILING_ACTIVE: Activate trailing stop.
 
-    LONG:  mark >= entry * 1.015  (+1.5%)
-    SHORT: mark <= entry * 0.985
+    LONG:  mark >= entry * (1 + trail_active_pct/100)
+    SHORT: mark <= entry * (1 - trail_active_pct/100)
     """
     if not _check_trigger(
         mark_price,
@@ -371,16 +338,13 @@ def _handle_partial_exit(
     ):
         return StageResult()
 
-    # Cancel TP2 exchange order — trailing stop takes over
+    # Cancel TP2 exchange order — trailing stop takes over from here
     if exchange and exchange.is_connected and trade.tp2_order_id:
-        try:
-            exchange.exchange.cancel(trade.symbol, int(trade.tp2_order_id))
-        except Exception as e:
-            logger.warning("cancel_tp2_failed", trade_id=trade.id, error=str(e))
+        exchange.cancel_order(trade.symbol, trade.tp2_order_id, order_type="plan")
     trade.tp2_order_id = None
 
     # Compute trailing offset and initial trailing SL
-    offset_pct = settings.trade_trail_lock_pct / 100  # 0.009
+    offset_pct = settings.trade_trail_lock_pct / 100
 
     if trade.side == TradeSide.LONG:
         initial_sl = trade.entry_price * (1 + offset_pct)
@@ -409,15 +373,16 @@ def _update_trailing_stop(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> None:
-    """Shared trailing stop ratchet logic.
+    """Ratchet trailing SL to follow new highs (longs) or new lows (shorts).
 
-    LONG: if new high → candidate_sl = high * (1 - 0.009). Move if > current.
-    SHORT: if new low → candidate_sl = low * (1 + 0.009). Move if < current.
-    SL NEVER moves backward.
+    SL never moves backward — only tightens as price moves in our favour.
+
+    LONG:  new high → candidate_sl = high * (1 - trail_lock_pct/100). Move if > current SL.
+    SHORT: new low  → candidate_sl = low  * (1 + trail_lock_pct/100). Move if < current SL.
     """
-    offset_pct = settings.trade_trail_lock_pct / 100  # 0.009
+    offset_pct = settings.trade_trail_lock_pct / 100
 
     if trade.side == TradeSide.LONG:
         if mark_price > trade.highest_price:
@@ -425,43 +390,43 @@ def _update_trailing_stop(
             trade.highest_price = mark_price
             candidate_sl = trade.highest_price * (1 - offset_pct)
             if candidate_sl > trade.sl_price:
-                if _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
+                if not _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
+                    trade.highest_price = old_watermark  # Revert so next tick retries
+                else:
                     logger.debug(
                         "trailing_sl_ratcheted",
                         trade_id=trade.id,
                         new_sl=candidate_sl,
                         watermark=trade.highest_price,
                     )
-                else:
-                    # Revert watermark so next tick retries
-                    trade.highest_price = old_watermark
     else:  # SHORT
         if mark_price < trade.lowest_price:
             old_watermark = trade.lowest_price
             trade.lowest_price = mark_price
             candidate_sl = trade.lowest_price * (1 + offset_pct)
             if candidate_sl < trade.sl_price:
-                if _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
+                if not _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
+                    trade.lowest_price = old_watermark  # Revert so next tick retries
+                else:
                     logger.debug(
                         "trailing_sl_ratcheted",
                         trade_id=trade.id,
                         new_sl=candidate_sl,
                         watermark=trade.lowest_price,
                     )
-                else:
-                    # Revert watermark so next tick retries
-                    trade.lowest_price = old_watermark
 
 
 def _check_tp2_exit(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult | None:
     """Check if price hit TP2 hard exit level.
-    TP2 closes the remaining position when price reaches +2.5% from entry.
-    This is checked before the trailing ratchet in both trailing stages.
+
+    Closes the remaining position when price reaches the TP2 trigger.
+    Checked before the trailing ratchet in both trailing stages.
+
     Returns:
         StageResult for CLOSED if TP2 hit, None otherwise.
     """
@@ -470,20 +435,13 @@ def _check_tp2_exit(
     ):
         return None
 
-    # Close remaining position
     if exchange and exchange.is_connected:
-        # Check actual position size to guard against TP2 exchange order already filled
-        if trade.market_type == MarketType.SPOT:
-            actual_size = exchange.get_spot_balance(trade.symbol)
-        else:
-            position = exchange.get_position(trade.symbol)
-            actual_size = abs(position.size) if position else 0.0
+        # Check whether TP2 exchange order already filled
+        position = exchange.get_position(trade.symbol)
+        actual_size = abs(position.size) if position else 0.0
 
         if actual_size > 1e-9:
-            if trade.market_type == MarketType.SPOT:
-                exchange.close_spot_position(trade.symbol, trade.remaining_quantity)
-            else:
-                exchange.close_position(trade.symbol, trade.remaining_quantity)
+            exchange.close_position(trade.symbol, trade.side, size=trade.remaining_quantity)
         else:
             logger.info(
                 "tp2_already_filled_on_exchange",
@@ -505,14 +463,14 @@ def _check_tp2_exit(
     )
     return StageResult(transitioned=True, new_stage=TradeStage.CLOSED)
 
+
 def _handle_trailing_active(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
     """TRAILING_ACTIVE → TRAILING_UPDATE (or CLOSED via TP2)."""
-    # Check TP2 hard exit first
     tp2_result = _check_tp2_exit(trade, mark_price, settings, exchange)
     if tp2_result:
         return tp2_result
@@ -525,14 +483,13 @@ def _handle_trailing_update(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
     """TRAILING_UPDATE → TRAILING_UPDATE (or CLOSED via TP2).
 
     Always returns transitioned=True so the caller persists the updated
     watermark and SL fields even when no SL modification occurred.
     """
-    # Check TP2 hard exit first
     tp2_result = _check_tp2_exit(trade, mark_price, settings, exchange)
     if tp2_result:
         return tp2_result
@@ -558,7 +515,7 @@ def evaluate_trade(
     trade: Trade,
     mark_price: float,
     settings: Settings,
-    exchange: HyperliquidClient | None,
+    exchange: LBankClient | None,
 ) -> StageResult:
     """Evaluate a single trade against the current mark price.
 
