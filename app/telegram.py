@@ -6,6 +6,7 @@ All methods are no-ops when telegram_enabled=False.
 
 from __future__ import annotations
 
+import html
 from typing import TYPE_CHECKING
 
 import httpx
@@ -19,6 +20,16 @@ if TYPE_CHECKING:
 logger = get_logger("app.telegram")
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
+
+
+def _e(value: object) -> str:
+    """Escape a value for safe use in Telegram HTML messages.
+
+    Escapes <, >, & so Telegram's HTML parser never chokes on
+    dynamic values like symbol names, rejection reasons, or
+    slope labels that might contain special characters.
+    """
+    return html.escape(str(value))
 
 
 class TelegramNotifier:
@@ -64,40 +75,44 @@ class TelegramNotifier:
         """New signal received from webhook."""
         await self.send_message(
             f"📡 <b>New Signal</b>\n"
-            f"Symbol: {signal.symbol}\n"
-            f"Action: {signal.action.value}\n"
+            f"Symbol: {_e(signal.symbol)}\n"
+            f"Action: {_e(signal.action.value)}\n"
             f"Price: {signal.entry_price}\n"
             f"Size: ${signal.size_usd}"
         )
 
     async def notify_trade_opened(
-        self, trade: Trade, signal: Signal, *, is_counter_trend: bool = False, half_size_reason: str = "",
+        self,
+        trade: Trade,
+        signal: Signal,
+        *,
+        is_counter_trend: bool = False,
+        half_size_reason: str = "",
     ) -> None:
         """Signal approved and trade opened."""
         trend_label = "Counter-trend" if is_counter_trend else "Pro-trend"
         size_note = f"${signal.actual_size_usd:.0f}" if signal.actual_size_usd else f"${signal.size_usd:.0f}"
         if half_size_reason:
-            size_note += f" (half: {half_size_reason})"
+            size_note += f" (half: {_e(half_size_reason)})"
 
-        # ATR regime line (only shown when regime detection is active)
         regime_line = ""
         if signal.is_fast_market is not None:
             regime_emoji = "⚡" if signal.is_fast_market else "🐢"
             regime_label = "FAST" if signal.is_fast_market else "SLOW"
             atr_pct = signal.atr_regime_pct if signal.atr_regime_pct is not None else 0.0
-            regime_line = (
-                f"\nRegime: {regime_emoji} {regime_label} (ATR {atr_pct:.1f}%)"
-            )
+            regime_line = f"\nRegime: {regime_emoji} {regime_label} (ATR {atr_pct:.1f}%)"
+
+        slope_val = f"{signal.ema_slope_value:.2f}" if signal.ema_slope_value is not None else "N/A"
 
         await self.send_message(
             f"✅ <b>Trade Opened</b>\n"
-            f"Symbol: {trade.symbol} ({trade.side.value.upper()})\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Trend: {trend_label}\n"
             f"Entry: {trade.entry_price:.2f}\n"
             f"SL: {trade.sl_price:.2f}\n"
             f"TP1: {trade.tp1_price:.2f} | TP2: {trade.tp2_price:.2f}\n"
             f"Size: {trade.quantity} ({size_note})\n"
-            f"{self._slope_label}: {signal.ema_slope_value:.2f}\n"
+            f"{_e(self._slope_label)}: {slope_val}\n"
             f"Slope rising: {signal.slope_rising}"
             f"{regime_line}"
         )
@@ -106,9 +121,9 @@ class TelegramNotifier:
         """Signal rejected (filters or trend)."""
         await self.send_message(
             f"❌ <b>Signal Rejected</b>\n"
-            f"Symbol: {signal.symbol}\n"
-            f"Status: {signal.status.value}\n"
-            f"Reason: {signal.rejection_reason or 'N/A'}"
+            f"Symbol: {_e(signal.symbol)}\n"
+            f"Status: {_e(signal.status.value)}\n"
+            f"Reason: {_e(signal.rejection_reason or 'N/A')}"
         )
 
     async def notify_signal_memory(self, signal: Signal) -> None:
@@ -119,7 +134,6 @@ class TelegramNotifier:
             else "N/A"
         )
 
-        # ATR regime line
         regime_line = ""
         if signal.is_fast_market is not None:
             regime_emoji = "⚡" if signal.is_fast_market else "🐢"
@@ -129,18 +143,17 @@ class TelegramNotifier:
 
         await self.send_message(
             f"🧠 <b>Memory Halt</b>\n"
-            f"Symbol: {signal.symbol}\n"
-            f"{self._slope_label}: {slope_str}"
-            f"{regime_line}\n"
+            f"Symbol: {_e(signal.symbol)}\n"
+            f"{_e(self._slope_label)}: {slope_str}\n"
             f"Waiting for slope recovery..."
+            f"{regime_line}"
         )
 
     async def notify_breakeven(self, trade: Trade, mark_price: float) -> None:
         """Trade SL moved to breakeven — position is now risk-free."""
-        side = trade.side.value.upper()
         await self.send_message(
-            f"\U0001f6e1 <b>Breakeven Triggered</b>\n"
-            f"Symbol: {trade.symbol} ({side})\n"
+            f"🛡 <b>Breakeven Triggered</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Entry: {trade.entry_price:.2f}\n"
             f"New SL: {trade.sl_price:.2f} (true BE incl. fees)\n"
             f"Mark: {mark_price:.2f}\n"
@@ -153,7 +166,6 @@ class TelegramNotifier:
         """50% of position closed at TP1 — shows secured profit."""
         from app.models import TradeSide
 
-        side = trade.side.value.upper()
         if trade.side == TradeSide.LONG:
             tp1_pnl_usd = (mark_price - trade.entry_price) * closed_size
             tp1_pnl_pct = ((mark_price - trade.entry_price) / trade.entry_price) * 100
@@ -162,11 +174,11 @@ class TelegramNotifier:
             tp1_pnl_pct = ((trade.entry_price - mark_price) / trade.entry_price) * 100
 
         sign = "+" if tp1_pnl_usd >= 0 else ""
-        emoji = "\U0001f7e2" if tp1_pnl_usd >= 0 else "\U0001f534"
+        emoji = "🟢" if tp1_pnl_usd >= 0 else "🔴"
 
         await self.send_message(
-            f"\U0001f4b0 <b>TP1 Partial Close</b>\n"
-            f"Symbol: {trade.symbol} ({side})\n"
+            f"💰 <b>TP1 Partial Close</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Entry: {trade.entry_price:.2f}\n"
             f"Fill: {mark_price:.2f}\n"
             f"Closed: {closed_size} (50%)\n"
@@ -181,15 +193,14 @@ class TelegramNotifier:
         """Trailing stop activated — shows current profit."""
         from app.models import TradeSide
 
-        side = trade.side.value.upper()
         if trade.side == TradeSide.LONG:
             profit_pct = ((mark_price - trade.entry_price) / trade.entry_price) * 100
         else:
             profit_pct = ((trade.entry_price - mark_price) / trade.entry_price) * 100
 
         await self.send_message(
-            f"\U0001f3af <b>Trailing Stop Activated</b>\n"
-            f"Symbol: {trade.symbol} ({side})\n"
+            f"🎯 <b>Trailing Stop Activated</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Entry: {trade.entry_price:.2f}\n"
             f"Mark: {mark_price:.2f}\n"
             f"Profit: +{profit_pct:.2f}%\n"
@@ -199,26 +210,18 @@ class TelegramNotifier:
 
     async def notify_sl_failed(self, trade: Trade, context: str) -> None:
         """CRITICAL: SL placement failed — trade may be unprotected."""
-        side = trade.side.value.upper()
         await self.send_message(
-            f"\U0001f6a8 <b>CRITICAL: SL PLACEMENT FAILED</b>\n"
-            f"Symbol: {trade.symbol} ({side})\n"
-            f"Trade ID: {trade.id[:8]}\n"
+            f"🚨 <b>CRITICAL: SL PLACEMENT FAILED</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
+            f"Trade ID: {_e(trade.id[:8])}\n"
             f"Entry: {trade.entry_price:.2f}\n"
             f"Last known SL: {trade.sl_price:.2f}\n"
-            f"Context: {context}\n"
+            f"Context: {_e(context)}\n"
             f"<b>Check exchange immediately!</b>"
         )
 
     def _calculate_pnl_breakdown(self, trade: Trade) -> str:
-        """Calculate P&L breakdown accounting for partial exits.
-
-        If TP1 partial close happened, shows:
-          - TP1 leg P&L
-          - Remaining leg P&L
-          - Combined total
-        Otherwise shows simple single-line P&L.
-        """
+        """Calculate P&L breakdown accounting for partial exits."""
         from app.models import TradeSide
 
         if trade.close_price is None:
@@ -244,7 +247,7 @@ class TelegramNotifier:
             sign_t = "+" if total_pnl >= 0 else ""
             sign_1 = "+" if tp1_pnl >= 0 else ""
             sign_r = "+" if rem_pnl >= 0 else ""
-            emoji = "\U0001f7e2" if total_pnl >= 0 else "\U0001f534"
+            emoji = "🟢" if total_pnl >= 0 else "🔴"
 
             return (
                 f"\n--- P&L Breakdown ---"
@@ -262,7 +265,7 @@ class TelegramNotifier:
                 pnl_pct = ((entry - close) / entry) * 100
 
             sign = "+" if pnl_usd >= 0 else ""
-            emoji = "\U0001f7e2" if pnl_usd >= 0 else "\U0001f534"
+            emoji = "🟢" if pnl_usd >= 0 else "🔴"
             return f"\n{emoji} P&L: {sign}${pnl_usd:,.2f} ({sign}{pnl_pct:.2f}%)"
 
     async def notify_trade_closed(self, trade: Trade) -> None:
@@ -285,11 +288,11 @@ class TelegramNotifier:
         )
 
         await self.send_message(
-            f"\U0001f3c1 <b>Trade Closed</b>\n"
-            f"Symbol: {trade.symbol} ({trade.side.value.upper()})\n"
+            f"🏁 <b>Trade Closed</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Entry: {trade.entry_price:.2f}{close_price_line}\n"
             f"SL: {trade.sl_price:.2f} ({sl_type})\n"
-            f"Reason: {reason}{pnl_line}"
+            f"Reason: {_e(reason)}{pnl_line}"
         )
 
     async def notify_slope_close(self, trade: Trade, slope_value: float) -> None:
@@ -303,10 +306,10 @@ class TelegramNotifier:
         )
 
         await self.send_message(
-            f"\u26a0\ufe0f <b>Slope SL Triggered</b>\n"
-            f"Symbol: {trade.symbol} ({trade.side.value.upper()})\n"
+            f"⚠️ <b>Slope SL Triggered</b>\n"
+            f"Symbol: {_e(trade.symbol)} ({_e(trade.side.value.upper())})\n"
             f"Entry: {trade.entry_price:.2f}{close_price_line}\n"
-            f"{self._slope_label}: {slope_value:.4f}\n"
+            f"{_e(self._slope_label)}: {slope_value:.4f}\n"
             f"Emergency close executed{pnl_line}"
         )
 
@@ -318,10 +321,10 @@ class TelegramNotifier:
         """Daily account balance snapshot summary."""
         prev_equity = f"${previous.total_equity:,.2f}" if previous else "N/A"
         sign = "+" if snapshot.equity_delta >= 0 else ""
-        arrow = "\U0001f4c8" if snapshot.equity_delta >= 0 else "\U0001f4c9"
+        arrow = "📈" if snapshot.equity_delta >= 0 else "📉"
 
         await self.send_message(
-            f"\U0001f4b0 <b>Balance Snapshot</b>\n"
+            f"💰 <b>Balance Snapshot</b>\n"
             f"T (Current): <b>${snapshot.total_equity:,.2f}</b>\n"
             f"T-1 (Previous): {prev_equity}\n"
             f"{arrow} Delta: {sign}${snapshot.equity_delta:,.2f} ({sign}{snapshot.pnl_pct:.2f}%)"
