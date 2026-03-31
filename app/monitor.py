@@ -294,11 +294,14 @@ class TradeMonitor:
         # TRAILING_UPDATE: deliberately no notification (too noisy)
 
     def _check_position_exists(self, trade: Trade) -> bool:
+        """Check whether the exchange position for a trade still exists.
+
+        Uses LBank's get_position for perp trades.
+        Spot trades are not supported by this exchange client.
+        """
         if not self._exchange or not self._exchange.is_connected:
-            return True
-        if trade.market_type == MarketType.SPOT:
-            balance = self._exchange.get_spot_balance(trade.symbol)
-            return balance > 0
+            return True  # Assume alive if no connection (paper mode)
+
         position = self._exchange.get_position(trade.symbol)
         return not (position is None or position.size == 0)
 
@@ -328,11 +331,10 @@ class TradeMonitor:
         if close_price is None and reason in (CloseReason.STOP_LOSS, CloseReason.TRAILING_STOP):
             close_price = trade.sl_price
 
-        # Cancel any remaining orders (e.g. TP2 left after SL fills)
+        # Cancel any remaining orders and close residual position
         if self._exchange and self._exchange.is_connected:
             self._exchange.cancel_all_orders(trade.symbol)
-            if trade.market_type == MarketType.PERP:
-                self._exchange.close_position(trade.symbol)
+            self._exchange.close_position(trade.symbol, trade.side)
 
         close_trade(trade, reason, close_price=close_price)
         await self._database.update_trade_stage(trade, TradeStage.CLOSED)
@@ -349,71 +351,45 @@ class TradeMonitor:
 
     async def _reconcile_on_startup(self) -> None:
         """Compare DB active trades vs actual exchange positions on boot.
-    
+
         Detects and handles:
-        - DB trade exists but exchange position is gone (liquidated/closed while bot was down)
-        - DB trade exists but exchange position size doesn't match (partial fill drift)
-        - Exchange position exists with no matching DB trade (orphan — logged as warning)
+        - DB trade exists but exchange position is gone (liquidated/closed while
+          bot was down).
+        - DB trade exists but position size doesn't match (partial fill drift).
+        - Missing SL order on exchange — places a fresh one from DB sl_price.
+        - Duplicate SL orders — cancels all but the one closest to entry.
+
+        LBank open orders are fetched via GET /cfd/openApi/v1/prv/order.
+        Each order has fields: orderId, side, posiDirection, positionSide,
+        price, origQty, status, sltriggerPrice, tptriggerPrice, stopPrice.
+
+        SL identification (two-way mode):
+            - positionSide == "SHORT" means it closes a position (reduceOnly equivalent).
+            - For a long position: closing order with side == "SELL".
+            - For a short position: closing order with side == "BUY".
+            - We further filter by stopPrice (trigger price) being on the losing
+              side of entry (below entry for longs, above for shorts).
         """
         if not self._exchange or not self._exchange.is_connected:
             logger.info("startup_reconciliation_skipped", reason="no exchange connection")
             return
-    
+
         trades = await self._database.get_active_trades()
         if not trades:
             logger.info("startup_reconciliation_ok", active_trades=0)
             return
-    
+
         prices = self._exchange.get_all_prices()
         tracked_symbols: set[str] = set()
-    
+
         for trade in trades:
             tracked_symbols.add(trade.symbol)
-    
-            # --- SPOT reconciliation ---
-            if trade.market_type == MarketType.SPOT:
-                actual_size = self._exchange.get_spot_balance(trade.symbol)
-                if actual_size <= 0:
-                    mark_price = prices.get(trade.symbol)
-                    logger.warning(
-                        "startup_reconciliation_position_gone",
-                        trade_id=trade.id,
-                        symbol=trade.symbol,
-                        stage=trade.stage.value,
-                    )
-                    await self._handle_position_gone(trade, mark_price=mark_price)
-                    if self._notifier:
-                        await self._notifier.send_message(
-                            f"\u26a0\ufe0f <b>Startup Reconciliation</b>\n"
-                            f"Trade {trade.symbol} ({trade.side.value.upper()}) "
-                            f"spot balance is zero.\n"
-                            f"Closed in DB as {trade.close_reason.value if trade.close_reason else 'unknown'}."
-                        )
-                    continue
-    
-                # Size check for spot
-                expected_size = abs(trade.remaining_quantity)
-                if expected_size > 0 and abs(actual_size - expected_size) / expected_size > 0.05:
-                    logger.warning(
-                        "startup_reconciliation_size_mismatch",
-                        trade_id=trade.id,
-                        symbol=trade.symbol,
-                        db_remaining=expected_size,
-                        exchange_size=actual_size,
-                    )
-                    if self._notifier:
-                        await self._notifier.send_message(
-                            f"\u26a0\ufe0f <b>Size Mismatch (Spot)</b>\n"
-                            f"{trade.symbol}: DB expects {expected_size} "
-                            f"but spot balance has {actual_size}"
-                        )
-                continue  # Skip perp SL checks for spot trades
-    
-            # --- PERP reconciliation ---
+
+            # ── Position existence check ───────────────────────────────────
             position = self._exchange.get_position(trade.symbol)
-    
+
             if position is None or position.size == 0:
-                # Position gone — closed/liquidated while bot was down
+                # Position gone — closed/liquidated while bot was offline
                 mark_price = prices.get(trade.symbol)
                 logger.warning(
                     "startup_reconciliation_position_gone",
@@ -424,16 +400,18 @@ class TradeMonitor:
                 await self._handle_position_gone(trade, mark_price=mark_price)
                 if self._notifier:
                     await self._notifier.send_message(
-                        f"\u26a0\ufe0f <b>Startup Reconciliation</b>\n"
+                        f"⚠️ <b>Startup Reconciliation</b>\n"
                         f"Trade {trade.symbol} ({trade.side.value.upper()}) "
                         f"position no longer exists on exchange.\n"
-                        f"Closed in DB as {trade.close_reason.value if trade.close_reason else 'unknown'}."
+                        f"Closed in DB as "
+                        f"{trade.close_reason.value if trade.close_reason else 'unknown'}."
                     )
                 continue
-    
-            # Position exists — check size alignment
+
+            # ── Size alignment check ───────────────────────────────────────
             expected_size = abs(trade.remaining_quantity)
             actual_size = abs(position.size)
+
             if expected_size > 0 and abs(actual_size - expected_size) / expected_size > 0.05:
                 logger.warning(
                     "startup_reconciliation_size_mismatch",
@@ -444,40 +422,57 @@ class TradeMonitor:
                 )
                 if self._notifier:
                     await self._notifier.send_message(
-                        f"\u26a0\ufe0f <b>Size Mismatch</b>\n"
+                        f"⚠️ <b>Size Mismatch</b>\n"
                         f"{trade.symbol}: DB expects {expected_size} "
                         f"but exchange has {actual_size}"
                     )
-    
-            # Check SL orders on exchange — distinguish SL from TP by price direction
-            # SL for longs: price BELOW entry
-            # SL for shorts: price ABOVE entry
+
+            # ── SL order check ─────────────────────────────────────────────
+            # Fetch open orders for this symbol from LBank.
+            # LBank response fields per order:
+            #   orderId        – order ID string
+            #   side           – "BUY" or "SELL"
+            #   posiDirection  – "0"=long, "1"=short (two-way mode)
+            #   positionSide   – "LONG"=open, "SHORT"=close, "SSHORT"=force-close
+            #   stopPrice      – trigger price (non-zero for SL/TP trigger orders)
+            #   price          – order limit price
+            #   status         – "4" = open/unfilled
             try:
-                open_orders = self._exchange.info.open_orders(self._exchange.wallet_address)
+                open_orders = self._exchange.get_open_orders(trade.symbol)
                 is_long = trade.side == TradeSide.LONG
                 entry_price = trade.entry_price
-    
-                symbol_sl_orders = [
+
+                # Identify SL candidates:
+                #   - positionSide == "SHORT" means the order closes a position.
+                #   - For a long, the close direction is SELL, so side == "SELL".
+                #   - For a short, the close direction is BUY, so side == "BUY".
+                #   - The trigger price (stopPrice) must be on the loss side of entry:
+                #       long  → stopPrice < entry_price
+                #       short → stopPrice > entry_price
+                close_side = "SELL" if is_long else "BUY"
+
+                sl_orders = [
                     o for o in open_orders
-                    if o["coin"] == trade.symbol
-                    and o.get("reduceOnly", False)
+                    if o.get("positionSide") == "SHORT"           # closing order
+                    and o.get("side", "").upper() == close_side   # correct direction
                     and (
-                        (is_long and float(o["limitPx"]) < entry_price) or
-                        (not is_long and float(o["limitPx"]) > entry_price)
+                        (is_long and float(o.get("stopPrice", 0)) < entry_price)
+                        or
+                        (not is_long and float(o.get("stopPrice", 0)) > entry_price)
                     )
                 ]
-    
+
                 logger.info(
                     "startup_reconciliation_sl_check",
                     trade_id=trade.id,
                     symbol=trade.symbol,
                     side=trade.side.value,
                     entry_price=entry_price,
-                    sl_orders_found=len(symbol_sl_orders),
+                    sl_orders_found=len(sl_orders),
                 )
-    
-                if len(symbol_sl_orders) == 0:
-                    # No SL at all — place one at the DB's latest sl_price
+
+                if len(sl_orders) == 0:
+                    # No SL on exchange — place one at the DB's stored sl_price
                     logger.warning(
                         "startup_reconciliation_missing_sl",
                         trade_id=trade.id,
@@ -508,54 +503,67 @@ class TradeMonitor:
                     if self._notifier:
                         status = "placed" if sl_result.success else "FAILED"
                         await self._notifier.send_message(
-                            f"\u26a0\ufe0f <b>Missing SL Recovered</b>\n"
+                            f"⚠️ <b>Missing SL Recovered</b>\n"
                             f"{trade.symbol}: SL at {trade.sl_price:.2f} — {status}"
                         )
-                elif len(symbol_sl_orders) > 1:
-                    # Multiple SLs — cancel all but the tightest one
-                    # For longs: tightest = highest price (closest to entry from below)
-                    # For shorts: tightest = lowest price (closest to entry from above)
-                    symbol_sl_orders.sort(
-                        key=lambda o: float(o["limitPx"]),
+
+                elif len(sl_orders) > 1:
+                    # Multiple SL orders — keep the tightest one, cancel the rest.
+                    # Tightest = highest stopPrice for longs (closest to entry from below),
+                    #            lowest  stopPrice for shorts (closest to entry from above).
+                    sl_orders.sort(
+                        key=lambda o: float(o.get("stopPrice", 0)),
                         reverse=is_long,
                     )
-                    keep = symbol_sl_orders[0]
-                    stale = symbol_sl_orders[1:]
+                    keep = sl_orders[0]
+                    stale = sl_orders[1:]
+
                     for o in stale:
-                        try:
-                            self._exchange.exchange.cancel(trade.symbol, o["oid"])
+                        cancelled = self._exchange.cancel_order(
+                            trade.symbol,
+                            str(o.get("orderId", "")),
+                            order_type="plan",
+                        )
+                        if cancelled:
                             logger.info(
                                 "startup_reconciliation_cancelled_stale_sl",
                                 trade_id=trade.id,
-                                cancelled_oid=o["oid"],
-                                cancelled_price=o["limitPx"],
+                                cancelled_order_id=o.get("orderId"),
+                                cancelled_price=o.get("stopPrice"),
                             )
-                        except Exception:
-                            logger.exception(
+                        else:
+                            logger.warning(
                                 "startup_reconciliation_cancel_failed",
-                                oid=o["oid"],
+                                order_id=o.get("orderId"),
                             )
-                    trade.sl_order_id = str(keep["oid"])
+
+                    trade.sl_order_id = str(keep.get("orderId", ""))
                     await self._database.update_trade(trade)
+
                     if self._notifier:
                         await self._notifier.send_message(
-                            f"\u26a0\ufe0f <b>Duplicate SLs Cleaned</b>\n"
-                            f"{trade.symbol}: Kept SL at {keep['limitPx']}, "
+                            f"⚠️ <b>Duplicate SLs Cleaned</b>\n"
+                            f"{trade.symbol}: Kept SL at {keep.get('stopPrice')}, "
                             f"cancelled {len(stale)} stale order(s)"
                         )
+
                 else:
-                    # Exactly 1 SL — make sure DB tracks the right order ID
-                    trade.sl_order_id = str(symbol_sl_orders[0]["oid"])
+                    # Exactly 1 SL — make sure the DB tracks the right order ID
+                    trade.sl_order_id = str(sl_orders[0].get("orderId", ""))
                     await self._database.update_trade(trade)
+
             except Exception:
-                logger.exception("startup_reconciliation_sl_check_error", trade_id=trade.id)
-    
+                logger.exception(
+                    "startup_reconciliation_sl_check_error",
+                    trade_id=trade.id,
+                )
+
         logger.info(
             "startup_reconciliation_complete",
             trades_checked=len(trades),
             symbols=list(tracked_symbols),
         )
-        
+
     async def _close_trade_for_flip(self, trade: Trade) -> None:
         """Close an existing trade to flip direction.
 
@@ -567,11 +575,7 @@ class TradeMonitor:
         if self._exchange and self._exchange.is_connected:
             close_price = self._exchange.get_mark_price(trade.symbol)
             self._exchange.cancel_all_orders(trade.symbol)
-            
-            if trade.market_type == MarketType.SPOT:
-                self._exchange.close_spot_position(trade.symbol, trade.remaining_quantity)
-            else:
-                self._exchange.close_position(trade.symbol)
+            self._exchange.close_position(trade.symbol, trade.side)
 
         close_trade(trade, CloseReason.DIRECTION_FLIP, close_price=close_price)
         await self._database.update_trade_stage(trade, TradeStage.CLOSED)
@@ -626,11 +630,7 @@ class TradeMonitor:
                 await self._database.update_signal(sig)
 
     async def _evaluate_single_signal(self, sig: Signal) -> None:
-        """Evaluate a single pending signal through the Brain pipeline.
-
-        Args:
-            sig: The signal to evaluate.
-        """
+        """Evaluate a single pending signal through the Brain pipeline."""
         logger.info(
             "evaluating_signal",
             signal_id=sig.id,
@@ -655,7 +655,6 @@ class TradeMonitor:
                 sig.evaluated_at = datetime.now(UTC)
                 await self._database.update_signal(sig)
                 return
-            # Opposing trade exists — will be handled at execution time, not during memory halt
             logger.info(
                 "opposing_position_detected_deferred",
                 signal_id=sig.id,
@@ -663,7 +662,7 @@ class TradeMonitor:
                 existing_side=existing[0].side.value,
             )
 
-        # 1b. Cooldown check — block re-entry after Slope SL close
+        # 1b. Cooldown check
         if await self._is_in_cooldown(sig.symbol):
             logger.info(
                 "signal_rejected_cooldown",
@@ -680,7 +679,7 @@ class TradeMonitor:
             await self._database.update_signal(sig)
             return
 
-        # 2. Fetch candles at configured timeframe
+        # 2. Fetch candles
         df = await fetch_candles(
             sig.symbol,
             self._settings.ccxt_exchange_source,
@@ -688,7 +687,6 @@ class TradeMonitor:
             timeframe=self._settings.candle_timeframe,
         )
 
-        # 2b. Fetch separate ATR candles if ATR regime uses a different timeframe
         atr_df = None
         if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.candle_timeframe:
             atr_df = await fetch_candles(
@@ -715,7 +713,6 @@ class TradeMonitor:
             atr_df=atr_df,
         )
 
-        # Log analytics to signal (T and T-1 values + last 5 history)
         sig.ema_slope_value = trend.ema_scaled
         sig.ema_slope_prev = trend.ema_scaled_prev
         sig.delta_slope_value = trend.delta
@@ -736,8 +733,7 @@ class TradeMonitor:
             slope_rising=trend.slope_rising,
         )
 
-        # 4a. HARD GATE — slope must be hooking in trade direction
-        # Always sends to memory halt if slope not aligned (counter-trend waits too)
+        # 4a. Slope gate
         is_counter_trend = False
         if not is_slope_aligned(sig.action.value, trend):
             logger.info(
@@ -759,11 +755,9 @@ class TradeMonitor:
                 await self._notifier.notify_signal_memory(sig)
             return
 
-        # 4b. SOFT GATE — macro trend (ema_scaled > 0 for longs, < 0 for shorts)
-        # If slope is aligned but macro isn't, allow as counter-trend at half size
+        # 4b. Macro gate
         if not is_macro_aligned(sig.action.value, trend):
             if self._settings.allow_counter_trend_half_size:
-                # Slope aligned but macro against — counter-trend at half size
                 is_counter_trend = True
                 logger.info(
                     "counter_trend_half_size",
@@ -774,9 +768,7 @@ class TradeMonitor:
                     original_size=sig.size_usd,
                     halved_size=sig.size_usd * 0.5,
                 )
-                # Don't mutate sig.size_usd — halving applied at actual_size calculation
             else:
-                # Strict: memory halt
                 logger.info(
                     "signal_entering_memory_macro",
                     signal_id=sig.id,
@@ -799,34 +791,31 @@ class TradeMonitor:
         current_price: float | None = None
         if self._exchange and self._exchange.is_connected:
             current_price = self._exchange.get_mark_price(sig.symbol)
-
         if current_price is None:
-            current_price = sig.entry_price  # Fallback
+            current_price = sig.entry_price
 
         sig.eval_price = current_price
         is_long = "long" in sig.action.value
 
-        df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source) 
-        
-        # 5b. Pre-execution filters (Phase 2)
+        df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source)
+
+        # 5b. Pre-execution filters
         filter_result = check_pre_execution_filters(
             trend,
             current_price,
             self._settings,
             is_long=is_long,
-            is_counter_trend=is_counter_trend,  
-            df_2h=df_2h,                       
+            is_counter_trend=is_counter_trend,
+            df_2h=df_2h,
         )
         if not filter_result.passed:
             if filter_result.should_wait:
-                # Overextended or chop — leave signal as-is, retry next cycle
                 logger.info(
                     "signal_filter_wait",
                     signal_id=sig.id,
                     reason=filter_result.rejection_reason,
                 )
                 return
-            # Hard reject (e.g. chase with REJECT action)
             sig.status = SignalStatus.REJECTED_FILTERS
             sig.rejection_reason = filter_result.rejection_reason
             sig.evaluated_at = datetime.now(UTC)
@@ -835,19 +824,18 @@ class TradeMonitor:
                 await self._notifier.notify_signal_rejected(sig)
             return
 
-        # 6. Apply sizing — any half-size condition caps at 0.5×, never stacks
+        # 6. Sizing
         vz_multiplier = value_zone_multiplier(df, is_long, self._settings.vz_memory_bars)
 
         if is_counter_trend:
-            actual_size = sig.size_usd * 0.5  # Hard cap, nothing else applies
+            actual_size = sig.size_usd * 0.5
         elif vz_multiplier < 1.0 or filter_result.size_multiplier < 1.0:
-            actual_size = sig.size_usd * 0.5  # Any single condition → 0.5x
+            actual_size = sig.size_usd * 0.5
         else:
-            actual_size = sig.size_usd  # Full size
+            actual_size = sig.size_usd
 
         sig.actual_size_usd = actual_size
 
-        # Determine half-size reason for notifications
         if is_counter_trend:
             half_size_reason = "counter-trend"
         elif vz_multiplier < 1.0:
@@ -857,7 +845,7 @@ class TradeMonitor:
         else:
             half_size_reason = ""
 
-        ## 6b. Detect and close opposing trade at execution time (not during memory halt)
+        # 6b. Handle opposing position at execution time
         is_opposing_flip = False
         opposing_trade = None
         existing_at_execution = await self._database.get_trades_by_symbol(sig.symbol)
@@ -868,7 +856,7 @@ class TradeMonitor:
             if opposite:
                 is_opposing_flip = True
                 opposing_trade = opposite[0]
-        
+
         if is_opposing_flip and opposing_trade is not None:
             await self._close_trade_for_flip(opposing_trade)
             await asyncio.sleep(1)
@@ -881,9 +869,13 @@ class TradeMonitor:
                 status=fresh_sig.status.value if fresh_sig else "not_found",
             )
             return
-        
+
         # 7. Execute entry
-        await self._execute_signal_entry(sig, actual_size, is_long, is_counter_trend=is_counter_trend, half_size_reason=half_size_reason)
+        await self._execute_signal_entry(
+            sig, actual_size, is_long,
+            is_counter_trend=is_counter_trend,
+            half_size_reason=half_size_reason,
+        )
 
     async def _execute_signal_entry(
         self,
@@ -894,35 +886,24 @@ class TradeMonitor:
         is_counter_trend: bool = False,
         half_size_reason: str = "",
     ) -> None:
-        """Place orders and create a Trade from an approved signal.
-    
-        Args:
-            sig: The approved signal.
-            size_usd: Actual trade size after value zone adjustment.
-            is_long: True for long, False for short.
-            is_counter_trend: True if this is a counter-trend trade (uses structural SL).
-            half_size_reason: Why trade was half-sized (empty if full size).
-        """
+        """Place orders and create a Trade from an approved signal."""
         symbol = sig.symbol
         side = TradeSide.LONG if is_long else TradeSide.SHORT
-        is_spot = sig.market_type == MarketType.SPOT
-    
-        # Calculate exit prices from settings
+
         exits = calculate_exit_prices(
             sig.eval_price or sig.entry_price,
             is_long,
             self._settings,
         )
-    
+
         quantity: float | None = None
         order_id: str | None = None
         fill_price = sig.eval_price or sig.entry_price
         sl_order_id: str | None = None
         tp1_order_id: str | None = None
         tp2_order_id: str | None = None
-    
+
         if self._exchange and self._exchange.is_connected:
-            # Calculate size in contracts
             quantity = self._exchange.calculate_order_size(symbol, size_usd)
             if quantity is None:
                 sig.status = SignalStatus.ERROR
@@ -930,27 +911,23 @@ class TradeMonitor:
                 sig.evaluated_at = datetime.now(UTC)
                 await self._database.update_signal(sig)
                 return
-    
-            # Place market order — route by market type
-            if is_spot:
-                result = self._exchange.place_spot_market_order(symbol, True, quantity)
-            else:
-                result = self._exchange.place_market_order(symbol, side, quantity)
-    
+
+            # Place market order
+            result = self._exchange.place_market_order(symbol, side, quantity)
+
             if not result.success:
                 sig.status = SignalStatus.ERROR
                 sig.rejection_reason = f"Order failed: {result.error}"
                 sig.evaluated_at = datetime.now(UTC)
                 await self._database.update_signal(sig)
                 return
-    
+
             order_id = result.order_id
             if result.avg_price:
                 fill_price = result.avg_price
-                # Recalculate exits with actual fill price
                 exits = calculate_exit_prices(fill_price, is_long, self._settings)
-    
-            # Partial fill detection — use actual filled size for SL/TP placement
+
+            # Partial fill detection
             if isinstance(result.filled_size, (int, float)) and result.filled_size > 0:
                 if abs(result.filled_size - quantity) / quantity > 0.01:
                     logger.warning(
@@ -962,18 +939,20 @@ class TradeMonitor:
                     )
                     if self._notifier:
                         await self._notifier.send_message(
-                            f"\u26a0\ufe0f <b>Partial Fill</b>\n"
+                            f"⚠️ <b>Partial Fill</b>\n"
                             f"{symbol}: Intended {quantity}, filled {result.filled_size}"
                         )
-                quantity = result.filled_size  # Use actual fill for all subsequent orders
-    
-            # Structural SL from 2H candles for all trades.
+                quantity = result.filled_size
+
+            # Structural SL from 2H candles
             try:
                 df_2h = await fetch_2h_candles(
                     sig.symbol,
                     self._settings.ccxt_exchange_source,
                 )
-                structural_sl = get_counter_trend_sl(df_2h, fill_price, is_long, self._settings.sl_buffer_pct)
+                structural_sl = get_counter_trend_sl(
+                    df_2h, fill_price, is_long, self._settings.sl_buffer_pct
+                )
                 if structural_sl is not None:
                     pct_sl = exits.sl_price
                     if is_long:
@@ -987,7 +966,6 @@ class TradeMonitor:
                         structural_sl=structural_sl,
                         final_sl=final_sl,
                         winner="structural" if final_sl == structural_sl else "percentage_cap",
-                        source="2h_low" if is_long else "2h_high",
                         is_counter_trend=is_counter_trend,
                     )
                     exits.sl_price = final_sl
@@ -1005,16 +983,13 @@ class TradeMonitor:
                     error=str(e),
                     fallback_sl=exits.sl_price,
                 )
-    
+
             tp1_size = round(quantity * self._settings.partial_exit_fraction, 8)
             tp2_size = round(quantity - tp1_size, 8)
-    
-            # Place SL — route by market type, close position if it fails
-            if is_spot:
-                sl_result = self._exchange.place_spot_stop_loss(symbol, quantity, exits.sl_price)
-            else:
-                sl_result = self._exchange.place_stop_loss(symbol, side, quantity, exits.sl_price)
-    
+
+            # Place SL
+            sl_result = self._exchange.place_stop_loss(symbol, side, quantity, exits.sl_price)
+
             if not sl_result.success:
                 logger.error(
                     "sl_placement_failed_closing_position",
@@ -1023,10 +998,7 @@ class TradeMonitor:
                     error=sl_result.error,
                 )
                 self._exchange.cancel_all_orders(symbol)
-                if is_spot:
-                    self._exchange.close_spot_position(symbol, quantity)
-                else:
-                    self._exchange.close_position(symbol)
+                self._exchange.close_position(symbol, side)
                 sig.status = SignalStatus.REJECTED_FILTERS
                 sig.rejection_reason = f"SL order rejected: {sl_result.error}"
                 sig.evaluated_at = datetime.now(UTC)
@@ -1035,22 +1007,18 @@ class TradeMonitor:
                     await self._notifier.notify_signal_rejected(sig)
                 return
             sl_order_id = sl_result.order_id
-    
-            # Place TP1 + TP2 — route by market type
-            if is_spot:
-                tp1_result = self._exchange.place_spot_take_profit(symbol, tp1_size, exits.tp1_price)
-                tp2_result = self._exchange.place_spot_take_profit(symbol, tp2_size, exits.tp2_price)
-            else:
-                tp1_result = self._exchange.place_take_profit(symbol, side, tp1_size, exits.tp1_price)
-                tp2_result = self._exchange.place_take_profit(symbol, side, tp2_size, exits.tp2_price)
-    
+
+            # Place TP1 + TP2
+            tp1_result = self._exchange.place_take_profit(symbol, side, tp1_size, exits.tp1_price)
+            tp2_result = self._exchange.place_take_profit(symbol, side, tp2_size, exits.tp2_price)
+
             tp1_order_id = tp1_result.order_id if tp1_result.success else None
             tp2_order_id = tp2_result.order_id if tp2_result.success else None
         else:
             # Paper mode
             quantity = size_usd / fill_price if fill_price > 0 else 0.001
             logger.warning("signal_entry_paper_mode", symbol=symbol)
-    
+
         # Create trade record
         trade = Trade(
             symbol=symbol,
@@ -1071,17 +1039,16 @@ class TradeMonitor:
             slope_rising=sig.slope_rising,
             atr_regime_pct=sig.atr_regime_pct,
             is_fast_market=sig.is_fast_market,
-            market_type=sig.market_type,  # ADD
+            market_type=sig.market_type,
         )
-    
+
         await self._database.save_trade(trade)
-    
-        # Update signal as approved
+
         sig.status = SignalStatus.APPROVED
         sig.trade_id = trade.id
         sig.evaluated_at = datetime.now(UTC)
         await self._database.update_signal(sig)
-    
+
         logger.info(
             "trade_audit_entry",
             signal_id=sig.id,
@@ -1102,18 +1069,18 @@ class TradeMonitor:
             is_counter_trend=is_counter_trend,
             half_size_reason=half_size_reason,
         )
-    
-        if self._notifier:
-            await self._notifier.notify_trade_opened(trade, sig, is_counter_trend=is_counter_trend, half_size_reason=half_size_reason)
 
-    # --- Memory Halt Evaluation (Phase 2) ---
+        if self._notifier:
+            await self._notifier.notify_trade_opened(
+                trade, sig,
+                is_counter_trend=is_counter_trend,
+                half_size_reason=half_size_reason,
+            )
+
+    # --- Memory Halt Evaluation ---
 
     async def _evaluate_memory_signals(self) -> None:
-        """Evaluate all signals in PENDING_MEMORY status.
-
-        For each memory signal, check if slope has recovered enough
-        to re-attempt entry, or if macro structure has broken.
-        """
+        """Evaluate all signals in PENDING_MEMORY status."""
         signals = await self._database.get_memory_signals()
         if not signals:
             return
@@ -1129,16 +1096,8 @@ class TradeMonitor:
                 )
 
     async def _evaluate_single_memory_signal(self, sig: Signal) -> None:
-        """Evaluate a single PENDING_MEMORY signal for recovery.
+        """Evaluate a single PENDING_MEMORY signal for recovery."""
 
-        Steps:
-        1. Check existing position → REJECTED_POSITION
-        2. Fetch candles + trend
-        3. Macro check: 50/200 EMA structure intact
-        4. Slope recovery check
-        5. If recovering: run pre-execution filters → execute
-        """
-        
         # 1. Check existing position
         existing = await self._database.get_trades_by_symbol(sig.symbol)
         if existing:
@@ -1146,18 +1105,19 @@ class TradeMonitor:
             same_direction = [t for t in existing if t.side == signal_side]
             if same_direction:
                 sig.status = SignalStatus.REJECTED_POSITION
-                sig.rejection_reason = f"Position opened while in memory (same direction): {same_direction[0].id}"
+                sig.rejection_reason = (
+                    f"Position opened while in memory (same direction): {same_direction[0].id}"
+                )
                 sig.evaluated_at = datetime.now(UTC)
                 await self._database.update_signal(sig)
                 return
-            # Opposing trade exists — will be handled at execution time, not during memory halt
             logger.info(
                 "opposing_position_detected_deferred",
                 signal_id=sig.id,
                 symbol=sig.symbol,
                 existing_side=existing[0].side.value,
             )
-        
+
         # 2. Fetch candles + trend
         df = await fetch_candles(
             sig.symbol,
@@ -1165,7 +1125,6 @@ class TradeMonitor:
             limit=self._settings.candle_fetch_limit,
             timeframe=self._settings.candle_timeframe,
         )
-        # Fetch separate ATR candles if ATR regime uses a different timeframe
         atr_df = None
         if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.candle_timeframe:
             atr_df = await fetch_candles(
@@ -1192,9 +1151,7 @@ class TradeMonitor:
 
         is_long = "long" in sig.action.value
 
-        # 3. Macro check: 50/200 EMA structure
-        # When counter-trend is ON, skip this kill — let the signal keep waiting
-        # for slope to recover, then enter at half size against the macro trend.
+        # 3. Macro kill switch (trend-following only)
         if not self._settings.allow_counter_trend_half_size:
             if is_long and trend.ema_50 < trend.ema_200:
                 sig.status = SignalStatus.EXPIRED_MACRO_BROKEN
@@ -1223,7 +1180,6 @@ class TradeMonitor:
         )
 
         if not recovering:
-            # Stay in memory — update tracking fields
             sig.last_memory_slope = current_slope
             sig.memory_eval_count += 1
             await self._database.update_signal(sig)
@@ -1237,28 +1193,24 @@ class TradeMonitor:
             )
             return
 
-        # 5. Slope is recovering — check alignment gates
+        # 5. Alignment gates
         is_counter_trend = False
         if not is_slope_aligned(sig.action.value, trend):
-            # Slope still not hooking in trade direction, stay in memory
             sig.last_memory_slope = current_slope
             sig.memory_eval_count += 1
             await self._database.update_signal(sig)
             return
 
-        # Slope is now aligned — check macro alignment
         if not is_macro_aligned(sig.action.value, trend):
             if self._settings.allow_counter_trend_half_size:
-                # Slope aligned but macro against — counter-trend at half size
                 is_counter_trend = True
             else:
-                # Macro not aligned and counter-trend disabled, stay in memory
                 sig.last_memory_slope = current_slope
                 sig.memory_eval_count += 1
                 await self._database.update_signal(sig)
                 return
 
-        # 6. Run pre-execution filters
+        # 6. Pre-execution filters
         current_price: float | None = None
         if self._exchange and self._exchange.is_connected:
             current_price = self._exchange.get_mark_price(sig.symbol)
@@ -1284,14 +1236,12 @@ class TradeMonitor:
             df_2h=df_2h,
         )
 
-
         if not filter_result.passed:
             if filter_result.should_wait:
                 sig.last_memory_slope = current_slope
                 sig.memory_eval_count += 1
                 await self._database.update_signal(sig)
                 return
-            # Hard reject
             sig.status = SignalStatus.REJECTED_FILTERS
             sig.rejection_reason = filter_result.rejection_reason
             sig.evaluated_at = datetime.now(UTC)
@@ -1300,19 +1250,18 @@ class TradeMonitor:
                 await self._notifier.notify_signal_rejected(sig)
             return
 
-        # 7. All checks passed — any half-size condition caps at 0.5×, never stacks
+        # 7. Sizing
         vz_multiplier = value_zone_multiplier(df, is_long, self._settings.vz_memory_bars)
-        
+
         if is_counter_trend:
             actual_size = sig.size_usd * 0.5
         elif vz_multiplier < 1.0 or filter_result.size_multiplier < 1.0:
             actual_size = sig.size_usd * 0.5
         else:
             actual_size = sig.size_usd
-        
+
         sig.actual_size_usd = actual_size
 
-        # Determine half-size reason for notifications
         if is_counter_trend:
             half_size_reason = "counter-trend"
         elif vz_multiplier < 1.0:
@@ -1330,28 +1279,25 @@ class TradeMonitor:
             eval_count=sig.memory_eval_count,
             is_counter_trend=is_counter_trend,
             half_size_reason=half_size_reason,
-            original_size=sig.size_usd,
             actual_size=actual_size,
         )
 
         # Close opposing trade before entering new direction
-        is_opposing_flip = False
-        opposing_trade = None
         existing_at_execution = await self._database.get_trades_by_symbol(sig.symbol)
         if existing_at_execution:
             signal_side = TradeSide.LONG if "long" in sig.action.value else TradeSide.SHORT
             opposite = [t for t in existing_at_execution if t.side != signal_side]
             if opposite:
-                is_opposing_flip = True
-                opposing_trade = opposite[0]
-        
-        if is_opposing_flip and opposing_trade is not None:
-            await self._close_trade_for_flip(opposing_trade)
-            await asyncio.sleep(1)
-            
-        await self._execute_signal_entry(sig, actual_size, is_long, is_counter_trend=is_counter_trend, half_size_reason=half_size_reason)
+                await self._close_trade_for_flip(opposite[0])
+                await asyncio.sleep(1)
 
-    # --- Cooldown Guardrail (Phase 2) ---
+        await self._execute_signal_entry(
+            sig, actual_size, is_long,
+            is_counter_trend=is_counter_trend,
+            half_size_reason=half_size_reason,
+        )
+
+    # --- Cooldown Guardrail ---
 
     async def _is_in_cooldown(self, symbol: str) -> bool:
         """Check if a symbol is blocked after a recent Slope SL close."""
@@ -1366,27 +1312,18 @@ class TradeMonitor:
                 return True
         return False
 
-    # --- Dynamic Slope Stop-Loss (Phase 2) ---
+    # --- Dynamic Slope Stop-Loss ---
 
     async def _check_slope_stop_loss(self) -> None:
-        """Check EMA50/EMA200 cross for all active trend-following trades.
-    
-        Closes a trade when the macro trend structure flips:
-        - LONG: close if EMA-50 crosses below EMA-200 (death cross)
-        - SHORT: close if EMA-50 crosses above EMA-200 (golden cross)
-    
-        Counter-trend trades are skipped — they already trade against
-        the macro trend so a cross doesn't signal an exit.
-        """
+        """Check EMA50/EMA200 cross for all active trend-following trades."""
         trades = await self._database.get_active_trades()
         if not trades:
             return
-    
-        # Group by symbol to avoid duplicate candle fetches
+
         by_symbol: dict[str, list[Trade]] = {}
         for trade in trades:
             by_symbol.setdefault(trade.symbol, []).append(trade)
-    
+
         for symbol, symbol_trades in by_symbol.items():
             try:
                 df = await fetch_candles(
@@ -1421,9 +1358,8 @@ class TradeMonitor:
             except Exception:
                 logger.exception("slope_sl_candle_fetch_error", symbol=symbol)
                 continue
-    
+
             for trade in symbol_trades:
-                # Skip counter-trend trades — macro flip is expected for them
                 is_counter_trend_trade = (
                     trade.side == TradeSide.LONG and trend.ema_50 < trend.ema_200
                 ) or (
@@ -1431,17 +1367,16 @@ class TradeMonitor:
                 )
                 if is_counter_trend_trade:
                     continue
-    
-                # Close when EMA50/EMA200 macro structure flips against trade direction
+
                 should_close = (
                     trade.side == TradeSide.LONG and trend.ema_50 < trend.ema_200
                 ) or (
                     trade.side == TradeSide.SHORT and trend.ema_50 > trend.ema_200
                 )
-    
+
                 if not should_close:
                     continue
-    
+
                 logger.info(
                     "slope_sl_triggered",
                     trade_id=trade.id,
@@ -1451,41 +1386,30 @@ class TradeMonitor:
                     ema_200=round(trend.ema_200, 2),
                     reason="ema50_ema200_cross",
                 )
-    
-                # Get mark price for P&L before closing
+
                 slope_close_price: float | None = None
                 if self._exchange and self._exchange.is_connected:
                     slope_close_price = self._exchange.get_mark_price(symbol)
                     self._exchange.cancel_all_orders(symbol)
-                    if trade.market_type == MarketType.SPOT:
-                        self._exchange.close_spot_position(symbol, trade.remaining_quantity)
-                    else:
-                        self._exchange.close_position(symbol)
-    
-                # Close trade in DB
+                    self._exchange.close_position(symbol, trade.side)
+
                 close_trade(trade, CloseReason.SLOPE_REVERSAL, close_price=slope_close_price)
                 await self._database.update_trade_stage(trade, TradeStage.CLOSED)
-    
+
                 if self._notifier:
                     await self._notifier.notify_slope_close(trade, trend.ema_scaled)
 
-    # --- Account Balance Snapshot (T / T-1 Tracker) ---
+    # --- Account Balance Snapshot ---
 
     async def _check_snapshot_due(self) -> None:
-        """Check if it's time for a new account balance snapshot.
-
-        Uses time-slot boundaries (not tick intervals) so the snapshot fires
-        exactly once per period even if the monitor restarts mid-cycle.
-        For daily (24h): fires when the UTC day changes.
-        """
+        """Check if it's time for a new account balance snapshot."""
         now = datetime.now(UTC)
         interval = self._settings.snapshot_interval_hours
         current_slot = str(int(now.timestamp()) // (interval * 3600))
 
         if self._last_snapshot_slot == current_slot:
-            return  # Already took snapshot for this period
+            return
 
-        # Don't snapshot on first few ticks (let system stabilize)
         if self._tick_count < 10:
             return
 
@@ -1502,7 +1426,6 @@ class TradeMonitor:
             logger.warning("snapshot_equity_fetch_failed")
             return
 
-        # Get previous snapshot for delta calculation
         prev = await self._database.get_latest_snapshot()
 
         if prev:
@@ -1536,14 +1459,10 @@ class TradeMonitor:
 
 
 async def _standalone_main() -> None:
-    """Run the monitor as a standalone process.
-
-    Used when the monitor runs as a separate systemd service
-    rather than embedded inside the API process.
-    """
+    """Run the monitor as a standalone process."""
     from app.config import get_settings
     from app.database import TradeDatabase
-    from app.exchange import LBankExchangeError as ExchangeError, LBankClient as LBankClient
+    from app.exchange import LBankExchangeError, LBankClient
     from app.logging_setup import setup_logging
     from app.telegram import TelegramNotifier
 
@@ -1554,7 +1473,6 @@ async def _standalone_main() -> None:
     database = TradeDatabase(settings.db_path)
     await database.init()
 
-    # Expire stale signals on boot (Phase 2)
     expired = await database.expire_stale_signals(settings.signal_stale_ttl_minutes)
     if expired:
         logger.info("boot_stale_signals_expired", count=expired)
@@ -1570,13 +1488,12 @@ async def _standalone_main() -> None:
             )
             exchange_client.connect()
             logger.info("exchange_client_ready")
-        except ExchangeError as e:
+        except LBankExchangeError as e:
             logger.error("exchange_connection_failed", error=str(e))
 
     notifier = TelegramNotifier(settings)
     monitor = TradeMonitor(settings, database, exchange_client, notifier=notifier)
 
-    # Graceful shutdown on SIGTERM (systemctl stop) and SIGINT (Ctrl+C)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         with contextlib.suppress(NotImplementedError):
