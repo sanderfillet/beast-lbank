@@ -4,18 +4,15 @@ Pure state machine that evaluates whether a trade should advance to its
 next stage based on the current mark price. Each stage transition triggers
 specific exchange actions (move SL, partial close, trailing ratchet, etc).
 
-The evaluate_trade() function is the single entry point called by the
-monitor loop on every tick for every active trade. It enforces the
-"exactly one transition per tick" invariant by returning after the first
-applicable transition.
+LBank order strategy:
+    - Entry + initial SL + TP2 placed together via place_market_order
+    - TP1 partial exit handled entirely in software by this module
+      (no TP1 exchange order — monitor closes 50% via close_position)
+    - SL updates use modify_stop_loss (placeStopProfitAndLossPosition)
+    - No cancel_order calls needed — no separate SL/TP orders to cancel
 
 Stage flow:
     ENTRY → BREAKEVEN → PARTIAL_EXIT → TRAILING_ACTIVE → TRAILING_UPDATE → CLOSED
-
-Usage:
-    result = evaluate_trade(trade, mark_price, settings, exchange)
-    if result.transitioned:
-        await db.update_trade_stage(trade, result.new_stage)
 """
 
 from __future__ import annotations
@@ -38,7 +35,6 @@ logger = get_logger("app.lifecycle")
 @dataclass
 class StageResult:
     """Result of a stage evaluation attempt."""
-
     transitioned: bool = False
     new_stage: TradeStage | None = None
     error: str | None = None
@@ -57,19 +53,13 @@ def _check_trigger(
 ) -> bool:
     """Check if mark_price has crossed a trigger threshold.
 
-    Config percentages are stored as human-readable values (0.5 = 0.5%),
-    so we divide by 100 to get the multiplier (0.005).
-
     For LONG:  mark_price >= entry_price * (1 + threshold / 100)
     For SHORT: mark_price <= entry_price * (1 - threshold / 100)
     """
     multiplier = threshold_percent / 100
     if side == TradeSide.LONG:
-        trigger_price = entry_price * (1 + multiplier)
-        return mark_price >= trigger_price
-    # SHORT
-    trigger_price = entry_price * (1 - multiplier)
-    return mark_price <= trigger_price
+        return mark_price >= entry_price * (1 + multiplier)
+    return mark_price <= entry_price * (1 - multiplier)
 
 
 def _move_stop_loss(
@@ -78,20 +68,16 @@ def _move_stop_loss(
     exchange: LBankClient | None,
     sl_max_retries: int = 3,
 ) -> bool:
-    """Place new SL, then cancel old one. Mutates trade in-place.
+    """Update SL on the exchange position. Mutates trade in-place.
 
-    Uses trade.remaining_quantity for the SL size so the order
-    covers only the current position (important after partial exits).
+    Uses exchange.modify_stop_loss which calls placeStopProfitAndLossPosition
+    to update the SL on the existing open position.
 
-    Returns True if SL was successfully placed (or no exchange in paper mode).
-    Returns False if placement failed after retries — trade keeps old SL.
+    Returns True if successful (or paper mode). False if all retries fail.
     """
     if not exchange or not exchange.is_connected:
-        # Paper mode — just update the price
         trade.sl_price = new_sl_price
         return True
-
-    old_order_id = trade.sl_order_id or None
 
     for attempt in range(1, sl_max_retries + 1):
         result = exchange.modify_stop_loss(
@@ -99,20 +85,18 @@ def _move_stop_loss(
             side=trade.side,
             size=trade.remaining_quantity,
             new_trigger_price=new_sl_price,
-            old_order_id=old_order_id,
         )
 
         if result.success:
             old_sl = trade.sl_price
-            trade.sl_order_id = result.order_id
             trade.sl_price = new_sl_price
+            # sl_order_id not used with position-level SL updates
             logger.info(
                 "sl_move_audit",
                 trade_id=trade.id,
                 symbol=trade.symbol,
                 old_sl=old_sl,
                 new_sl=new_sl_price,
-                new_order_id=result.order_id,
                 size=trade.remaining_quantity,
             )
             return True
@@ -126,7 +110,6 @@ def _move_stop_loss(
             error=result.error,
         )
 
-    # All retries exhausted — old SL stays, trade.sl_price unchanged
     logger.error(
         "move_sl_failed_all_retries",
         trade_id=trade.id,
@@ -142,16 +125,7 @@ def close_trade(
     reason: CloseReason,
     close_price: float | None = None,
 ) -> None:
-    """Mark a trade as CLOSED. Mutates trade in-place; caller persists.
-
-    Calculates P&L from entry_price, close_price (or tp1_fill_price
-    for partial close leg), and position quantities.
-
-    Args:
-        trade: The trade to close.
-        reason: Why the trade is being closed.
-        close_price: Mark price at time of close (for P&L calculation).
-    """
+    """Mark a trade as CLOSED and calculate P&L. Mutates trade in-place."""
     trade.stage = TradeStage.CLOSED
     trade.closed_at = datetime.now(UTC)
     trade.close_reason = reason
@@ -198,14 +172,11 @@ def _handle_entry(
     settings: Settings,
     exchange: LBankClient | None,
 ) -> StageResult:
-    """ENTRY → BREAKEVEN: Move SL to true breakeven (entry + round-trip fees).
+    """ENTRY → BREAKEVEN: Move SL to true breakeven when price hits BE trigger.
 
-    LONG:  mark >= entry * (1 + be_trigger_pct/100)
-    SHORT: mark <= entry * (1 - be_trigger_pct/100)
-
-    True breakeven accounts for round-trip exchange fees (entry + exit):
-    LONG:  true_be = entry * (1 + (fee_pct * 2) / 100)
-    SHORT: true_be = entry * (1 - (fee_pct * 2) / 100)
+    True breakeven = entry + round-trip fees so we don't lose on the trade.
+    LONG:  true_be = entry * (1 + fee_pct*2/100)
+    SHORT: true_be = entry * (1 - fee_pct*2/100)
     """
     if not _check_trigger(mark_price, trade.entry_price, settings.trade_be_trigger_pct, trade.side):
         return StageResult()
@@ -220,7 +191,6 @@ def _handle_entry(
         return StageResult(error="SL placement failed at breakeven — keeping old SL")
 
     trade.be_triggered = True
-
     logger.info(
         "breakeven_triggered",
         trade_id=trade.id,
@@ -237,22 +207,17 @@ def _handle_breakeven(
     settings: Settings,
     exchange: LBankClient | None,
 ) -> StageResult:
-    """BREAKEVEN → PARTIAL_EXIT: Close partial_exit_fraction of position at TP1.
+    """BREAKEVEN → PARTIAL_EXIT: Close 50% of position in software when TP1 hit.
 
-    LONG:  mark >= entry * (1 + tp1_trigger_pct/100)
-    SHORT: mark <= entry * (1 - tp1_trigger_pct/100)
+    No exchange TP1 order exists — the monitor closes the partial position
+    directly via close_position when price reaches the TP1 trigger.
     """
-    if not _check_trigger(
-        mark_price,
-        trade.entry_price,
-        settings.trade_tp1_trigger_pct,
-        trade.side,
-    ):
+    if not _check_trigger(mark_price, trade.entry_price, settings.trade_tp1_trigger_pct, trade.side):
         return StageResult()
 
     partial_size = round(trade.quantity * settings.partial_exit_fraction, 8)
 
-    # Size floor: ensure partial close notional meets minimum
+    # Size floor: ensure partial close meets minimum notional
     min_notional = settings.min_close_notional_usd
     partial_notional = partial_size * mark_price
     if partial_notional < min_notional and mark_price > 0:
@@ -267,14 +232,12 @@ def _handle_breakeven(
         )
 
     if exchange and exchange.is_connected:
-        # Check actual position size to guard against TP1 exchange order race
+        # Check actual position size to guard against race conditions
         position = exchange.get_position(trade.symbol)
         actual_size = abs(position.size) if position else 0.0
-
         expected_remaining = round(trade.quantity - partial_size, 8)
 
         if actual_size <= expected_remaining + 1e-9:
-            # TP1 already filled on exchange — skip market close
             logger.info(
                 "tp1_already_filled_on_exchange",
                 trade_id=trade.id,
@@ -283,28 +246,18 @@ def _handle_breakeven(
                 expected_remaining=expected_remaining,
             )
         else:
-            close_result = exchange.close_position(
-                trade.symbol, trade.side, size=partial_size
-            )
+            close_result = exchange.close_position(trade.symbol, trade.side, size=partial_size)
             if not close_result.success:
-                logger.error(
-                    "partial_close_failed",
-                    trade_id=trade.id,
-                    error=close_result.error,
-                )
+                logger.error("partial_close_failed", trade_id=trade.id, error=close_result.error)
                 return StageResult(error=close_result.error)
-
-        # Cancel TP1 exchange order — may already be filled, that's fine
-        if trade.tp1_order_id:
-            exchange.cancel_order(trade.symbol, trade.tp1_order_id, order_type="plan")
 
     # Update trade state
     trade.remaining_quantity = round(trade.quantity - partial_size, 8)
     trade.partial_exit_done = True
     trade.tp1_fill_price = mark_price
-    trade.tp1_order_id = None
+    trade.tp1_order_id = None  # No exchange TP1 order
 
-    # Re-place SL with remaining_quantity (old SL has wrong size after partial close)
+    # Update SL size to match remaining quantity
     sl_ok = _move_stop_loss(trade, trade.sl_price, exchange, settings.sl_max_retries)
 
     logger.info(
@@ -325,27 +278,14 @@ def _handle_partial_exit(
     settings: Settings,
     exchange: LBankClient | None,
 ) -> StageResult:
-    """PARTIAL_EXIT → TRAILING_ACTIVE: Activate trailing stop.
-
-    LONG:  mark >= entry * (1 + trail_active_pct/100)
-    SHORT: mark <= entry * (1 - trail_active_pct/100)
-    """
-    if not _check_trigger(
-        mark_price,
-        trade.entry_price,
-        settings.trade_trail_active_pct,
-        trade.side,
-    ):
+    """PARTIAL_EXIT → TRAILING_ACTIVE: Activate trailing stop when trail trigger hit."""
+    if not _check_trigger(mark_price, trade.entry_price, settings.trade_trail_active_pct, trade.side):
         return StageResult()
 
-    # Cancel TP2 exchange order — trailing stop takes over from here
-    if exchange and exchange.is_connected and trade.tp2_order_id:
-        exchange.cancel_order(trade.symbol, trade.tp2_order_id, order_type="plan")
+    # No TP2 exchange order to cancel — trailing takes over in software
     trade.tp2_order_id = None
 
-    # Compute trailing offset and initial trailing SL
     offset_pct = settings.trade_trail_lock_pct / 100
-
     if trade.side == TradeSide.LONG:
         initial_sl = trade.entry_price * (1 + offset_pct)
         trade.highest_price = mark_price
@@ -375,13 +315,7 @@ def _update_trailing_stop(
     settings: Settings,
     exchange: LBankClient | None,
 ) -> None:
-    """Ratchet trailing SL to follow new highs (longs) or new lows (shorts).
-
-    SL never moves backward — only tightens as price moves in our favour.
-
-    LONG:  new high → candidate_sl = high * (1 - trail_lock_pct/100). Move if > current SL.
-    SHORT: new low  → candidate_sl = low  * (1 + trail_lock_pct/100). Move if < current SL.
-    """
+    """Ratchet trailing SL as price moves in our favour. SL never moves backward."""
     offset_pct = settings.trade_trail_lock_pct / 100
 
     if trade.side == TradeSide.LONG:
@@ -391,29 +325,19 @@ def _update_trailing_stop(
             candidate_sl = trade.highest_price * (1 - offset_pct)
             if candidate_sl > trade.sl_price:
                 if not _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
-                    trade.highest_price = old_watermark  # Revert so next tick retries
+                    trade.highest_price = old_watermark
                 else:
-                    logger.debug(
-                        "trailing_sl_ratcheted",
-                        trade_id=trade.id,
-                        new_sl=candidate_sl,
-                        watermark=trade.highest_price,
-                    )
-    else:  # SHORT
+                    logger.debug("trailing_sl_ratcheted", trade_id=trade.id, new_sl=candidate_sl)
+    else:
         if mark_price < trade.lowest_price:
             old_watermark = trade.lowest_price
             trade.lowest_price = mark_price
             candidate_sl = trade.lowest_price * (1 + offset_pct)
             if candidate_sl < trade.sl_price:
                 if not _move_stop_loss(trade, candidate_sl, exchange, settings.sl_max_retries):
-                    trade.lowest_price = old_watermark  # Revert so next tick retries
+                    trade.lowest_price = old_watermark
                 else:
-                    logger.debug(
-                        "trailing_sl_ratcheted",
-                        trade_id=trade.id,
-                        new_sl=candidate_sl,
-                        watermark=trade.lowest_price,
-                    )
+                    logger.debug("trailing_sl_ratcheted", trade_id=trade.id, new_sl=candidate_sl)
 
 
 def _check_tp2_exit(
@@ -422,37 +346,19 @@ def _check_tp2_exit(
     settings: Settings,
     exchange: LBankClient | None,
 ) -> StageResult | None:
-    """Check if price hit TP2 hard exit level.
-
-    Closes the remaining position when price reaches the TP2 trigger.
-    Checked before the trailing ratchet in both trailing stages.
-
-    Returns:
-        StageResult for CLOSED if TP2 hit, None otherwise.
-    """
-    if not _check_trigger(
-        mark_price, trade.entry_price, settings.trade_tp2_trigger_pct, trade.side
-    ):
+    """Check if price hit TP2 hard exit. Closes remaining position in software."""
+    if not _check_trigger(mark_price, trade.entry_price, settings.trade_tp2_trigger_pct, trade.side):
         return None
 
     if exchange and exchange.is_connected:
-        # Check whether TP2 exchange order already filled
         position = exchange.get_position(trade.symbol)
         actual_size = abs(position.size) if position else 0.0
-
         if actual_size > 1e-9:
             exchange.close_position(trade.symbol, trade.side, size=trade.remaining_quantity)
         else:
-            logger.info(
-                "tp2_already_filled_on_exchange",
-                trade_id=trade.id,
-                symbol=trade.symbol,
-            )
-
-        exchange.cancel_all_orders(trade.symbol)
+            logger.info("tp2_already_filled_on_exchange", trade_id=trade.id, symbol=trade.symbol)
 
     close_trade(trade, CloseReason.TAKE_PROFIT, close_price=mark_price)
-
     logger.info(
         "tp2_hard_exit",
         trade_id=trade.id,
@@ -474,7 +380,6 @@ def _handle_trailing_active(
     tp2_result = _check_tp2_exit(trade, mark_price, settings, exchange)
     if tp2_result:
         return tp2_result
-
     _update_trailing_stop(trade, mark_price, settings, exchange)
     return StageResult(transitioned=True, new_stage=TradeStage.TRAILING_UPDATE)
 
@@ -487,13 +392,11 @@ def _handle_trailing_update(
 ) -> StageResult:
     """TRAILING_UPDATE → TRAILING_UPDATE (or CLOSED via TP2).
 
-    Always returns transitioned=True so the caller persists the updated
-    watermark and SL fields even when no SL modification occurred.
+    Always returns transitioned=True to persist updated watermark/SL fields.
     """
     tp2_result = _check_tp2_exit(trade, mark_price, settings, exchange)
     if tp2_result:
         return tp2_result
-
     _update_trailing_stop(trade, mark_price, settings, exchange)
     return StageResult(transitioned=True, new_stage=TradeStage.TRAILING_UPDATE)
 
@@ -519,14 +422,11 @@ def evaluate_trade(
 ) -> StageResult:
     """Evaluate a single trade against the current mark price.
 
-    Dispatches to the handler for the trade's current stage. Returns
-    after at most ONE stage transition (no leapfrogging).
-
-    The trade object is mutated in-place. The caller is responsible
-    for persisting the changes.
+    Dispatches to the handler for the trade's current stage.
+    Returns after at most ONE stage transition per call.
+    The trade object is mutated in-place — caller persists changes.
     """
     handler = _STAGE_HANDLERS.get(trade.stage)
     if handler is None:
         return StageResult()
-
     return handler(trade, mark_price, settings, exchange)
