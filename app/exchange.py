@@ -132,7 +132,7 @@ class LBankClient:
         api_key: str,
         api_secret: str,
         base_url: str = "https://api.lbkex.com",
-        sign_method: str = "RSA",
+        sign_method: str = "HmacSHA256",
         timeout: int = 10,
     ) -> None:
         self.api_key = api_key
@@ -152,35 +152,25 @@ class LBankClient:
         raw = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars
         return raw[:36]
 
-    def _sign(self, params: dict) -> str:
-        """LBank RSA signature.
-        1. Sort params alphabetically.
-        2. Build key=val&key=val string.
-        3. MD5 → uppercase.
-        4. Sign with RSA private key (SHA256) → Base64.
+    def _sign(self, params: dict[str, Any]) -> str:
+        """Produce a HmacSHA256 signature for params dict.
+
+        Steps (per LBank docs):
+            1. Sort params alphabetically by key.
+            2. Encode as key=val&key=val query string.
+            3. MD5-hash → uppercase.
+            4. HmacSHA256 the MD5 result with api_secret → hex.
         """
-        import base64
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-    
         sorted_pairs = "&".join(
             f"{k}={v}" for k, v in sorted(params.items(), key=lambda x: x[0])
         )
         md5_upper = hashlib.md5(sorted_pairs.encode()).hexdigest().upper()
-    
-        # Load private key
-        private_key = serialization.load_der_private_key(
-            base64.b64decode(self.api_secret),
-            password=None,
-        )
-    
-        # Sign with RSA-SHA256
-        signature = private_key.sign(
+        signature = hmac.new(
+            self.api_secret.encode(),
             md5_upper.encode(),
-            padding.PKCS1v15(),
-            hashes.SHA256(),
-        )
-        return base64.b64encode(signature).decode()
+            hashlib.sha256,
+        ).hexdigest()
+        return signature
 
     def _auth_headers_and_extras(self) -> tuple[dict[str, str], dict[str, str]]:
         """Return (request headers, extra params to merge into payload).
@@ -661,40 +651,52 @@ class LBankClient:
         Endpoint: POST /cfd/openApi/v1/prv/placeStopProfitAndLossOrder
 
         Key fields:
+            instrumentID           : trading pair (NOT symbol)
+            exchangeID             : "Exchange"
             profitAndLossDirection : "0"=Long's SL/TP, "1"=Short's SL/TP
             direction              : "1"=Sell (close long), "0"=Buy (close short)
             offsetFlag             : "1"=close position
             triggerOrderType       : "2"=Order TP/SL
-            triggerPriceType       : "0"=latest price
+            triggerPriceType       : "0"=latest price, "1"=mark price
             triggerPriceCalType    : "0"=by absolute price
-            price                  : 0 for market execution
+            price                  : actual order price (use mark price for market-like fill)
+            volume                 : quantity to close
+
+        Note: price cannot be "0" — must be a real price value.
+        We use the current mark price to get a market-like fill.
+        closeSLPrice / closeTPPrice left blank = market fill on trigger.
         """
         try:
             contract_symbol = self._contract_symbol(symbol)
             is_long = (side == TradeSide.LONG)
 
+            # Get current price for the price field (required, cannot be 0)
+            current_price = self.get_mark_price(symbol)
+            if current_price is None:
+                return OrderResult(success=False, error="Could not get mark price for SL/TP order")
+
             body: dict[str, Any] = {
                 "exchangeID": _EXCHANGE_ID,
-                "instrumentID": contract_symbol,
-                "direction": "1" if is_long else "0",   # sell to close long, buy to close short
-                "offsetFlag": "1",                       # close position
+                "instrumentID": contract_symbol,          # note: instrumentID not symbol
+                "direction": "1" if is_long else "0",    # sell to close long, buy to close short
+                "offsetFlag": "1",                        # close position
                 "posiDirection": self._posi_direction(side),
                 "profitAndLossDirection": "0" if is_long else "1",
-                "triggerOrderType": "2",                 # order TP/SL
-                "triggerPriceType": "0",                 # latest price
-                "triggerPriceCalType": "0",              # by absolute price
-                "price": "0",                            # market execution price
+                "triggerOrderType": "2",                  # order TP/SL
+                "triggerPriceType": "1",                  # mark price as trigger reference
+                "triggerPriceCalType": "0",               # by absolute price
+                "price": str(current_price),              # real price required (not 0)
                 "volume": str(size),
                 "resultType": "ACK",
             }
 
             if sl_price is not None:
                 body["closeSLTriggerPrice"] = str(sl_price)
-                body["closeSLPrice"] = ""   # blank = market fill on trigger
+                # closeSLPrice blank = market fill on trigger
 
             if tp_price is not None:
                 body["closeTPTriggerPrice"] = str(tp_price)
-                body["closeTPPrice"] = ""   # blank = market fill on trigger
+                # closeTPPrice blank = market fill on trigger
 
             res = self._post(_EP_PLACE_SL_TP, body)
 
@@ -820,9 +822,14 @@ class LBankClient:
             return False
 
     def cancel_all_orders(self, symbol: str) -> None:
-        """Cancel all open regular and plan orders for a symbol."""
+        """Cancel all open regular and plan orders for a symbol.
+
+        LBank trading endpoints are rate-limited to 1 request per 10 seconds.
+        A small sleep between calls avoids 10012 rate limit errors.
+        """
         # Cancel regular (limit/market) orders
         self.cancel_order(symbol, "", order_type="price")
+        time.sleep(1.0)  # Respect 1 req/10s trading rate limit
         # Cancel plan (trigger / SL / TP) orders
         self.cancel_order(symbol, "", order_type="plan")
 
