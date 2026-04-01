@@ -1,18 +1,19 @@
 """LBank Futures exchange client.
 
 Uses the official LBank Contract API:
-    Base URL  : https://{domain}/
+    Base URL  : https://fapi.lbank.info
     Public    : /cfd/openApi/v1/pub/...
     Private   : /cfd/openApi/v1/prv/...
 
-Authentication (HmacSHA256 method):
+Authentication (RSA method):
     1. Collect all request params + api_key, signature_method, timestamp, echostr.
     2. Sort params alphabetically by key.
     3. Build query string: key=val&key=val...
     4. MD5-hash the string → uppercase hex.
-    5. HmacSHA256-sign the MD5 result with api_secret → hex digest.
+    5. RSA-SHA256 sign the MD5 result with the private key → Base64.
     6. Send headers: Content-Type, timestamp, signature_method, echostr.
-    7. Append sign to the payload.
+    7. For GET: URL-encode the sign param (base64 contains +/= that break query strings).
+    8. For POST: append sign to the JSON body (no encoding needed).
 
 Position assumptions (confirmed by user):
     - Isolated margin  (isCrossMargin = 0)
@@ -30,20 +31,25 @@ orderPriceType codes:
     4  = Market (ten price levels) — used for all market orders
 
 Product group: "SwapU" (USDT-margined perpetuals)
+
+Rate limits:
+    Read-only : 50 requests per 10 seconds per API key
+    Trading   : 1 request per 10 seconds per API key
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
-import hmac
-import logging
-import string
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode
 
 import requests
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 
 from app.logging_setup import get_logger
 from app.models import TradeSide
@@ -109,7 +115,7 @@ class LBankExchangeError(Exception):
 class LBankClient:
     """LBank USDT-margined perpetual futures client.
 
-    Implements the /cfd/openApi/v1/ REST API with HmacSHA256 authentication.
+    Implements the /cfd/openApi/v1/ REST API with RSA authentication.
 
     Two-way position mode, isolated margin.
 
@@ -131,13 +137,12 @@ class LBankClient:
         self,
         api_key: str,
         api_secret: str,
-        base_url: str = "https://api.lbkex.com",
-        sign_method: str = "HmacSHA256",
+        base_url: str = "https://fapi.lbank.info",
+        sign_method: str = "RSA",
         timeout: int = 10,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
-        # Strip trailing slash for clean URL joins
         self.base_url = base_url.rstrip("/")
         self.sign_method = sign_method
         self.timeout = timeout
@@ -152,25 +157,33 @@ class LBankClient:
         raw = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars
         return raw[:36]
 
-    def _sign(self, params: dict[str, Any]) -> str:
-        """Produce a HmacSHA256 signature for params dict.
+    def _sign(self, params: dict) -> str:
+        """LBank RSA signature.
 
         Steps (per LBank docs):
             1. Sort params alphabetically by key.
-            2. Encode as key=val&key=val query string.
-            3. MD5-hash → uppercase.
-            4. HmacSHA256 the MD5 result with api_secret → hex.
+            2. Build key=val&key=val query string.
+            3. MD5-hash → uppercase hex.
+            4. RSA-SHA256 sign the MD5 result with private key → Base64.
+
+        The api_secret must be a Base64-encoded PKCS8 DER private key,
+        as provided by LBank when creating an RSA API key.
         """
         sorted_pairs = "&".join(
             f"{k}={v}" for k, v in sorted(params.items(), key=lambda x: x[0])
         )
         md5_upper = hashlib.md5(sorted_pairs.encode()).hexdigest().upper()
-        signature = hmac.new(
-            self.api_secret.encode(),
+
+        private_key = serialization.load_der_private_key(
+            base64.b64decode(self.api_secret),
+            password=None,
+        )
+        signature = private_key.sign(
             md5_upper.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        return signature
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return base64.b64encode(signature).decode()
 
     def _auth_headers_and_extras(self) -> tuple[dict[str, str], dict[str, str]]:
         """Return (request headers, extra params to merge into payload).
@@ -198,19 +211,29 @@ class LBankClient:
     def _get(self, endpoint: str, params: dict[str, Any] | None = None, auth: bool = True) -> dict:
         """Execute an authenticated GET request.
 
-        Auth params go into the query string for GET requests.
+        For RSA signed requests the docs require URL-encoding the sign value.
+        Base64 characters (+, /, =) get mangled when passed via requests' params
+        dict, so we build the query string manually and URL-encode only sign.
         """
         params = dict(params or {})
         headers = {}
+
         if auth:
             auth_headers, extras = self._auth_headers_and_extras()
             params.update(extras)
-            params["sign"] = self._sign(params)
+            sign = self._sign(params)
+            # Regular params go unencoded; sign is URL-encoded (base64 safe chars)
+            query = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+            query += f"&sign={quote(sign, safe='')}"
             headers = auth_headers
+            url = self.base_url + endpoint + "?" + query
+        else:
+            url = self.base_url + endpoint
+            if params:
+                url += "?" + urlencode(params)
 
-        url = self.base_url + endpoint
         try:
-            resp = self._session.get(url, params=params, headers=headers, timeout=self.timeout)
+            resp = self._session.get(url, headers=headers, timeout=self.timeout)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -220,7 +243,8 @@ class LBankClient:
     def _post(self, endpoint: str, body: dict[str, Any] | None = None) -> dict:
         """Execute an authenticated POST request.
 
-        Auth params are merged into the JSON body for POST requests.
+        Auth params are merged into the JSON body. POST sends JSON so
+        the base64 signature needs no URL encoding.
         """
         body = dict(body or {})
         auth_headers, extras = self._auth_headers_and_extras()
@@ -278,8 +302,8 @@ class LBankClient:
     def get_mark_price(self, symbol: str) -> float | None:
         """Get the latest mark price for a symbol.
 
-        Endpoint: GET /cfd/openApi/v1/pub/marketData
-        Response list item fields: symbol, lastPrice, markedPrice, ...
+        Endpoint: GET /cfd/openApi/v1/pub/marketData (public, no auth)
+        Response list fields: symbol, lastPrice, markedPrice, ...
         """
         try:
             contract_symbol = self._contract_symbol(symbol)
@@ -291,7 +315,6 @@ class LBankClient:
             data = res if isinstance(res, list) else res.get("data", [])
             for item in data:
                 if item.get("symbol") == contract_symbol:
-                    # Prefer markedPrice; fall back to lastPrice
                     price_str = item.get("markedPrice") or item.get("lastPrice")
                     if price_str:
                         return float(price_str)
@@ -306,7 +329,7 @@ class LBankClient:
 
         Returns: {bare_symbol: price} e.g. {"BTC": 65000.0, "ETH": 3200.0}
 
-        Endpoint: GET /cfd/openApi/v1/pub/marketData
+        Endpoint: GET /cfd/openApi/v1/pub/marketData (public, no auth)
         """
         try:
             res = self._get(
@@ -317,10 +340,9 @@ class LBankClient:
             data = res if isinstance(res, list) else res.get("data", [])
             prices: dict[str, float] = {}
             for item in data:
-                raw_symbol = item.get("symbol", "")  # e.g. "BTCUSDT"
+                raw_symbol = item.get("symbol", "")
                 price_str = item.get("markedPrice") or item.get("lastPrice")
                 if raw_symbol and price_str:
-                    # Strip trailing USDT for internal key consistency
                     bare = raw_symbol.replace("USDT", "") if raw_symbol.endswith("USDT") else raw_symbol
                     prices[bare] = float(price_str)
             return prices
@@ -344,7 +366,6 @@ class LBankClient:
             )
             if self._ok(res) and "data" in res:
                 data = res["data"]
-                # balance = wallet balance (includes unrealised PnL)
                 balance_str = data.get("balance") or data.get("available")
                 if balance_str:
                     return float(balance_str)
@@ -367,9 +388,7 @@ class LBankClient:
             posiDirection  : "0"=Long, "1"=Short, "2"=Net
             position       : quantity held
             openPrice      : average open price
-            unrealizedProfit
-            positionID
-            tradeUnitID    : needed for closing in two-way mode
+            unrealizedProfit, positionID, tradeUnitID
         """
         try:
             contract_symbol = self._contract_symbol(symbol)
@@ -377,7 +396,6 @@ class LBankClient:
                 _EP_POSITION,
                 params={"productGroup": _PRODUCT_GROUP, "symbol": contract_symbol},
             )
-            # Response is a list directly or wrapped in data
             positions = res if isinstance(res, list) else res.get("data", [])
             if not isinstance(positions, list):
                 positions = []
@@ -394,7 +412,7 @@ class LBankClient:
                 elif posi_dir == "1":
                     side = "short"
                 else:
-                    continue  # net/unknown — skip
+                    continue
 
                 return PositionInfo(
                     symbol=symbol,
@@ -456,25 +474,19 @@ class LBankClient:
 
     def _posi_direction(self, side: TradeSide) -> str:
         """Map TradeSide to LBank posiDirection string (two-way mode).
-
-        Long  → "0"
-        Short → "1"
+        Long → "0", Short → "1"
         """
         return "0" if side == TradeSide.LONG else "1"
 
     def _open_side(self, side: TradeSide) -> str:
         """Buy/sell direction for opening a position.
-
-        Open long  → BUY
-        Open short → SELL
+        Open long → BUY, Open short → SELL
         """
         return "BUY" if side == TradeSide.LONG else "SELL"
 
     def _close_side(self, side: TradeSide) -> str:
         """Buy/sell direction for closing a position.
-
-        Close long  → SELL
-        Close short → BUY
+        Close long → SELL, Close short → BUY
         """
         return "SELL" if side == TradeSide.LONG else "BUY"
 
@@ -513,12 +525,12 @@ class LBankClient:
             body = {
                 "symbol": contract_symbol,
                 "side": self._open_side(side),
-                "offsetFlag": "0",          # open position
-                "orderPriceType": "4",      # market (ten price levels)
-                "origType": "0",            # regular
+                "offsetFlag": "0",
+                "orderPriceType": "4",
+                "origType": "0",
                 "posiDirection": self._posi_direction(side),
                 "volume": str(size),
-                "resultType": "ACK",        # returns full order info
+                "resultType": "ACK",
             }
 
             res = self._post(_EP_PLACE_ORDER, body)
@@ -565,34 +577,26 @@ class LBankClient:
     ) -> OrderResult:
         """Close an existing position at market price.
 
-        If side is None, attempts to close all (offsetFlag=5).
-        If size is provided, closes that quantity. Otherwise closes all.
+        If side is None, closes all positions for the symbol (offsetFlag=5).
+        If size is provided, closes that quantity. Otherwise closes all of that side.
 
         Endpoint: POST /cfd/openApi/v1/prv/placeOrder
-        offsetFlag = 1 (close position) or 5 (close all)
+        offsetFlag = 1 (close specific size) or 5 (close all)
         """
         try:
-            price = self.get_mark_price(symbol)
-            if not price:
-                return OrderResult(success=False, error="Could not get mark price")
-
             contract_symbol = self._contract_symbol(symbol)
 
             if side is None:
-                # Close all without caring about direction
                 body = {
                     "symbol": contract_symbol,
-                    "side": "SELL",         # placeholder; offsetFlag=5 closes regardless
-                    "offsetFlag": "5",      # close all
-                    "orderPriceType": "4",  # market
+                    "side": "SELL",
+                    "offsetFlag": "5",
+                    "orderPriceType": "4",
                     "origType": "0",
                     "resultType": "ACK",
                 }
             else:
-                offset = "1"  # close specific position
-                if size is None:
-                    offset = "5"  # close all of this direction
-
+                offset = "1" if size is not None else "5"
                 body = {
                     "symbol": contract_symbol,
                     "side": self._close_side(side),
@@ -611,7 +615,7 @@ class LBankClient:
                 data = res.get("data") or {}
                 order_id = str(data.get("orderId") or data.get("orderSysID") or "")
                 avg_price_str = data.get("avgPrice")
-                avg_price = float(avg_price_str) if avg_price_str else price
+                avg_price = float(avg_price_str) if avg_price_str else None
 
                 logger.info(
                     "order_success",
@@ -651,52 +655,53 @@ class LBankClient:
         Endpoint: POST /cfd/openApi/v1/prv/placeStopProfitAndLossOrder
 
         Key fields:
-            instrumentID           : trading pair (NOT symbol)
+            instrumentID           : trading pair (NOT symbol key)
             exchangeID             : "Exchange"
             profitAndLossDirection : "0"=Long's SL/TP, "1"=Short's SL/TP
             direction              : "1"=Sell (close long), "0"=Buy (close short)
             offsetFlag             : "1"=close position
             triggerOrderType       : "2"=Order TP/SL
-            triggerPriceType       : "0"=latest price, "1"=mark price
+            triggerPriceType       : "1"=mark price (more reliable than latest)
             triggerPriceCalType    : "0"=by absolute price
-            price                  : actual order price (use mark price for market-like fill)
+            price                  : current mark price (REQUIRED — cannot be 0)
             volume                 : quantity to close
 
-        Note: price cannot be "0" — must be a real price value.
-        We use the current mark price to get a market-like fill.
-        closeSLPrice / closeTPPrice left blank = market fill on trigger.
+        closeSLPrice / closeTPPrice omitted = market fill on trigger.
         """
         try:
             contract_symbol = self._contract_symbol(symbol)
             is_long = (side == TradeSide.LONG)
 
-            # Get current price for the price field (required, cannot be 0)
+            # price is required and cannot be 0 — fetch current mark price
             current_price = self.get_mark_price(symbol)
             if current_price is None:
-                return OrderResult(success=False, error="Could not get mark price for SL/TP order")
+                return OrderResult(
+                    success=False,
+                    error="Could not get mark price for SL/TP order",
+                )
 
             body: dict[str, Any] = {
                 "exchangeID": _EXCHANGE_ID,
-                "instrumentID": contract_symbol,          # note: instrumentID not symbol
-                "direction": "1" if is_long else "0",    # sell to close long, buy to close short
-                "offsetFlag": "1",                        # close position
+                "instrumentID": contract_symbol,
+                "direction": "1" if is_long else "0",
+                "offsetFlag": "1",
                 "posiDirection": self._posi_direction(side),
                 "profitAndLossDirection": "0" if is_long else "1",
-                "triggerOrderType": "2",                  # order TP/SL
-                "triggerPriceType": "1",                  # mark price as trigger reference
-                "triggerPriceCalType": "0",               # by absolute price
-                "price": str(current_price),              # real price required (not 0)
+                "triggerOrderType": "2",
+                "triggerPriceType": "1",        # mark price
+                "triggerPriceCalType": "0",     # by absolute price
+                "price": str(current_price),    # required — cannot be 0
                 "volume": str(size),
                 "resultType": "ACK",
             }
 
             if sl_price is not None:
                 body["closeSLTriggerPrice"] = str(sl_price)
-                # closeSLPrice blank = market fill on trigger
+                # closeSLPrice omitted = market fill on trigger
 
             if tp_price is not None:
                 body["closeTPTriggerPrice"] = str(tp_price)
-                # closeTPPrice blank = market fill on trigger
+                # closeTPPrice omitted = market fill on trigger
 
             res = self._post(_EP_PLACE_SL_TP, body)
 
@@ -771,10 +776,12 @@ class LBankClient:
 
         LBank does not have a direct modify endpoint for SL/TP orders,
         so we cancel the old one and place a new one.
+        A sleep between cancel and place respects the 1 req/10s trading limit.
         """
         try:
             if old_order_id:
                 self.cancel_order(symbol, old_order_id, order_type="plan")
+                time.sleep(1.0)  # Respect trading rate limit before placing new SL
 
             return self.place_stop_loss(symbol, side, size, new_trigger_price)
 
@@ -796,7 +803,7 @@ class LBankClient:
         order_type: "price" for regular limit/market orders,
                     "plan" for trigger/SL/TP orders.
 
-        If order_id is empty, cancels all orders for the symbol.
+        If order_id is empty, cancels all orders of that type for the symbol.
         """
         try:
             contract_symbol = self._contract_symbol(symbol)
@@ -825,12 +832,10 @@ class LBankClient:
         """Cancel all open regular and plan orders for a symbol.
 
         LBank trading endpoints are rate-limited to 1 request per 10 seconds.
-        A small sleep between calls avoids 10012 rate limit errors.
+        A sleep between the two cancel calls avoids 10012 rate limit errors.
         """
-        # Cancel regular (limit/market) orders
         self.cancel_order(symbol, "", order_type="price")
-        time.sleep(1.0)  # Respect 1 req/10s trading rate limit
-        # Cancel plan (trigger / SL / TP) orders
+        time.sleep(1.0)
         self.cancel_order(symbol, "", order_type="plan")
 
     # ─────────────────────── open orders ─────────────────────────────────────
@@ -840,7 +845,6 @@ class LBankClient:
 
         Endpoint: GET /cfd/openApi/v1/prv/order
         Required: productGroup=SwapU
-        Optional: orderType (default "price")
 
         Response fields per order:
             orderId, side, posiDirection, positionSide,
@@ -869,7 +873,7 @@ class LBankClient:
             if self._ok(res):
                 data = res.get("data", {})
                 result_list = data.get("resultList", [])
-                # Filter to only unfilled orders (status == "4")
+                # Only return unfilled orders (status == "4")
                 return [o for o in result_list if str(o.get("status", "")) == "4"]
             return []
         except Exception as e:
