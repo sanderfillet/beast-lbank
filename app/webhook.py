@@ -296,9 +296,11 @@ async def _handle_entry_signal(
 
     # --- Cluster countdown reset ---
     existing_pending = await database.get_pending_signals_by_symbol(payload.symbol)
-    if existing_pending:
+    # Only reset if same action (long stays long, short stays short)
+    same_action_pending = [s for s in existing_pending if s.action == payload.action]
+    if same_action_pending:
         # Reset the countdown on the existing signal instead of creating a duplicate
-        existing = existing_pending[0]
+        existing = same_action_pending[0]
         existing.created_at = datetime.now(UTC)
         existing.entry_price = entry_price
         await database.update_signal(existing)
