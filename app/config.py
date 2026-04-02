@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     trade_trail_active_pct: float = Field(default=1.5)
     trade_trail_lock_pct: float = Field(default=0.9)
     trade_tp2_trigger_pct: float = Field(default=2.5)
+    counter_trend_tp2_trigger_pct: float = Field(default=5.0)  # Higher TP2 for counter-trend trades
+    counter_trend_tp2_trigger_pct: float = Field(default=5.0)  # Higher TP for counter-trend trades
 
     # --- Filters ---
     max_ema_gap_pct: float = Field(default=4.0)

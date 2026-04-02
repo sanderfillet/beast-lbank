@@ -466,9 +466,9 @@ class TradeMonitor:
         sig.actual_size_usd = actual_size
 
         existing_at_execution = await self._database.get_trades_by_symbol(sig.symbol)
-        if existing_at_execution:
+        if existing_at_execution and not is_counter_trend:
             signal_side = TradeSide.LONG if "long" in sig.action.value else TradeSide.SHORT
-            opposite = [t for t in existing_at_execution if t.side != signal_side]
+            opposite = [t for t in existing_at_execution if t.side != signal_side and not t.is_counter_trend]
             if opposite:
                 await self._close_trade_for_flip(opposite[0])
                 await asyncio.sleep(1)
@@ -503,6 +503,12 @@ class TradeMonitor:
         side = TradeSide.LONG if is_long else TradeSide.SHORT
 
         exits = calculate_exit_prices(sig.eval_price or sig.entry_price, is_long, self._settings)
+
+        # Counter-trend trades use a higher TP2 target
+        if is_counter_trend and self._settings.counter_trend_tp2_trigger_pct != self._settings.trade_tp2_trigger_pct:
+            direction = 1.0 if is_long else -1.0
+            base_price = sig.eval_price or sig.entry_price
+            exits.tp2_price = round(base_price * (1 + (self._settings.counter_trend_tp2_trigger_pct / 100) * direction), 2)
 
         quantity: float | None = None
         order_id: str | None = None
@@ -601,12 +607,14 @@ class TradeMonitor:
             atr_regime_pct=sig.atr_regime_pct,
             is_fast_market=sig.is_fast_market,
             market_type=sig.market_type,
+            is_counter_trend=is_counter_trend,
         )
 
         await self._database.save_trade(trade)
 
         sig.status = SignalStatus.APPROVED
         sig.trade_id = trade.id
+        sig.is_counter_trend = is_counter_trend
         sig.evaluated_at = datetime.now(UTC)
         await self._database.update_signal(sig)
 
@@ -772,9 +780,9 @@ class TradeMonitor:
         logger.info("memory_signal_recovered", signal_id=sig.id, symbol=sig.symbol, slope=round(current_slope, 4), eval_count=sig.memory_eval_count, is_counter_trend=is_counter_trend, actual_size=actual_size)
 
         existing_at_execution = await self._database.get_trades_by_symbol(sig.symbol)
-        if existing_at_execution:
+        if existing_at_execution and not is_counter_trend:
             signal_side = TradeSide.LONG if "long" in sig.action.value else TradeSide.SHORT
-            opposite = [t for t in existing_at_execution if t.side != signal_side]
+            opposite = [t for t in existing_at_execution if t.side != signal_side and not t.is_counter_trend]
             if opposite:
                 await self._close_trade_for_flip(opposite[0])
                 await asyncio.sleep(1)

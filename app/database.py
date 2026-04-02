@@ -169,6 +169,8 @@ SIGNAL_MIGRATIONS = [
     "ALTER TABLE signals ADD COLUMN atr_regime_pct REAL",
     "ALTER TABLE signals ADD COLUMN is_fast_market INTEGER",
     "ALTER TABLE signals ADD COLUMN market_type TEXT NOT NULL DEFAULT 'perp'",
+    "ALTER TABLE trades ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE signals ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -252,7 +254,7 @@ class TradeDatabase:
                 tp1_fill_price, pnl_usd, pnl_pct,
                 entry_order_id, sl_order_id, tp1_order_id, tp2_order_id,
                 signal_id, ema_slope_value, delta_slope_value, slope_rising,
-                atr_regime_pct, is_fast_market, market_type
+                atr_regime_pct, is_fast_market, market_type, is_counter_trend
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -261,7 +263,7 @@ class TradeDatabase:
                 ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?
+                ?, ?, ?, ?
             )
             """,
             _trade_to_row(trade),
@@ -289,7 +291,8 @@ class TradeDatabase:
                 close_price = ?, tp1_fill_price = ?,
                 pnl_usd = ?, pnl_pct = ?,
                 entry_order_id = ?, sl_order_id = ?,
-                tp1_order_id = ?, tp2_order_id = ?
+                tp1_order_id = ?, tp2_order_id = ?,
+                is_counter_trend = ?
             WHERE id = ?
             """,
             (
@@ -313,6 +316,7 @@ class TradeDatabase:
                 trade.sl_order_id,
                 trade.tp1_order_id,
                 trade.tp2_order_id,
+                int(trade.is_counter_trend),
                 trade.id,
             ),
         )
@@ -493,8 +497,8 @@ class TradeDatabase:
                 rejection_reason, trade_id, ema_slope_history, delta_slope_history,
                 created_at, evaluated_at,
                 memory_entered_at, last_memory_slope, memory_eval_count,
-                atr_regime_pct, is_fast_market, market_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                atr_regime_pct, is_fast_market, market_type, is_counter_trend
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _signal_to_row(signal),
         )
@@ -514,7 +518,8 @@ class TradeDatabase:
                 evaluated_at = ?,
                 memory_entered_at = ?, last_memory_slope = ?,
                 memory_eval_count = ?, created_at = ?,
-                atr_regime_pct = ?, is_fast_market = ?
+                atr_regime_pct = ?, is_fast_market = ?,
+                is_counter_trend = ?
             WHERE id = ?
             """,
             (
@@ -537,6 +542,7 @@ class TradeDatabase:
                 signal.created_at.isoformat(),
                 signal.atr_regime_pct,
                 int(signal.is_fast_market) if signal.is_fast_market is not None else None,
+                int(signal.is_counter_trend),
                 signal.id,
             ),
         )
@@ -799,7 +805,8 @@ def _trade_to_row(trade: Trade) -> tuple:
         int(trade.slope_rising) if trade.slope_rising is not None else None,
         trade.atr_regime_pct,
         int(trade.is_fast_market) if trade.is_fast_market is not None else None,
-        trade.market_type.value,  
+        trade.market_type.value,
+        int(trade.is_counter_trend),
     )
 
 
@@ -841,6 +848,7 @@ def _row_to_trade(row: aiosqlite.Row) -> Trade:
         atr_regime_pct=row["atr_regime_pct"] if "atr_regime_pct" in row.keys() else None,
         is_fast_market=bool(row["is_fast_market"]) if "is_fast_market" in row.keys() and row["is_fast_market"] is not None else None,
         market_type=MarketType(row["market_type"]) if "market_type" in row.keys() else MarketType.PERP,
+        is_counter_trend=bool(row["is_counter_trend"]) if "is_counter_trend" in row.keys() and row["is_counter_trend"] is not None else False,
     )
 
 
@@ -872,7 +880,8 @@ def _signal_to_row(signal: Signal) -> tuple:
         signal.memory_eval_count,
         signal.atr_regime_pct,
         int(signal.is_fast_market) if signal.is_fast_market is not None else None,
-        signal.market_type.value,  
+        signal.market_type.value,
+        int(signal.is_counter_trend),
     )
 
 
@@ -910,6 +919,9 @@ def _row_to_signal(row: aiosqlite.Row) -> Signal:
 
     atr_regime_pct = None
     is_fast_market = None
+    is_counter_trend = False
+    with contextlib.suppress(IndexError, KeyError):
+        is_counter_trend = bool(row["is_counter_trend"]) if row["is_counter_trend"] is not None else False
     with contextlib.suppress(IndexError, KeyError):
         atr_regime_pct = row["atr_regime_pct"]
     with contextlib.suppress(IndexError, KeyError):

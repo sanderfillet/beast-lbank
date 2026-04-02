@@ -198,6 +198,7 @@ class Trade(BaseModel):
     is_fast_market: bool | None = Field(default=None, description="Whether ATR regime detected fast market at entry")
 
     market_type: MarketType = Field(default=MarketType.PERP)
+    is_counter_trend: bool = Field(default=False, description="Whether this is a counter-trend trade (macro misaligned)")
 
     def model_post_init(self, __context: object) -> None:
         """Set remaining_quantity to full quantity if not explicitly set."""
@@ -332,6 +333,7 @@ class Signal(BaseModel):
 
     # Market Type
     market_type: MarketType = Field(default=MarketType.PERP)
+    is_counter_trend: bool = Field(default=False, description="Whether this signal was evaluated as counter-trend")
 
 
 class AccountSnapshot(BaseModel):
