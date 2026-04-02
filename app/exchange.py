@@ -75,6 +75,7 @@ _EP_CANCEL_ORDER   = "/cfd/openApi/v1/prv/cancelOrder"
 _EP_OPEN_ORDERS    = "/cfd/openApi/v1/prv/order"
 _EP_PLACE_SL_TP    = "/cfd/openApi/v1/prv/placeStopProfitAndLossOrder"
 _EP_UPDATE_SL_TP   = "/cfd/openApi/v1/prv/placeStopProfitAndLossPosition"
+_EP_INSTRUMENT     = "/cfd/openApi/v1/pub/instrument"
 
 
 # ─────────────────────────── data classes ────────────────────────────────────
@@ -137,6 +138,8 @@ class LBankClient:
         self.is_connected = False
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
+        # Cached instrument specs: {contract_symbol: {"volume_tick": float, "min_volume": float}}
+        self._instrument_specs: dict[str, dict] = {}
 
     # ─────────────────────── auth ─────────────────────────────────────────────
 
@@ -215,7 +218,7 @@ class LBankClient:
     # ─────────────────────── connection ──────────────────────────────────────
 
     def connect(self) -> None:
-        """Verify connectivity via public /getTime endpoint."""
+        """Verify connectivity, then cache instrument specs for size rounding."""
         try:
             res = self._get(_EP_TIME, auth=False)
             if not self._ok(res):
@@ -225,6 +228,35 @@ class LBankClient:
         except Exception as e:
             logger.error("exchange_connect_failed", error=str(e))
             raise LBankExchangeError(f"Failed to connect: {e}") from e
+
+        # Fetch and cache instrument specs for all SwapU symbols
+        try:
+            self._load_instrument_specs()
+        except Exception as e:
+            logger.warning("instrument_specs_load_failed", error=str(e))
+
+    def _load_instrument_specs(self) -> None:
+        """Fetch instrument specs and cache volumeTick + minOrderVolume per symbol.
+
+        Endpoint: GET /cfd/openApi/v1/pub/instrument?productGroup=SwapU
+        Key fields:
+            symbol          : e.g. "HYPEUSDT"
+            volumeTick      : minimum order size step (e.g. 0.1 for HYPE)
+            minOrderVolume  : minimum order quantity (same as volumeTick in practice)
+        """
+        res = self._get(_EP_INSTRUMENT, params={"productGroup": _PRODUCT_GROUP}, auth=False)
+        items = res if isinstance(res, list) else res.get("data", [])
+        for item in items:
+            symbol = item.get("symbol", "")
+            if not symbol:
+                continue
+            volume_tick = float(item.get("volumeTick") or item.get("minOrderVolume") or 1)
+            min_volume = float(item.get("minOrderVolume") or volume_tick)
+            self._instrument_specs[symbol] = {
+                "volume_tick": volume_tick,
+                "min_volume": min_volume,
+            }
+        logger.info("instrument_specs_loaded", count=len(self._instrument_specs))
 
     # ─────────────────────── symbol ──────────────────────────────────────────
 
@@ -244,12 +276,61 @@ class LBankClient:
         return "SELL" if side == TradeSide.LONG else "BUY"
 
     def calculate_order_size(self, symbol: str, size_usd: float) -> float | None:
-        """Calculate contracts from USD notional."""
+        """Calculate order quantity from USD notional, rounded to volumeTick precision.
+
+        Uses cached instrument specs to:
+        1. Determine decimal precision from volumeTick (e.g. 0.1 → 1 decimal)
+        2. Round DOWN to nearest volumeTick step (floor, not round)
+        3. Enforce minOrderVolume floor
+
+        Examples (HYPE at $36, volumeTick=0.1):
+            $10 → 0.277... → floor to 0.2 HYPE
+            $50 → 1.388... → floor to 1.3 HYPE
+        """
         try:
             price = self.get_mark_price(symbol)
             if not price:
                 return None
-            return round(size_usd / price, 4)
+
+            contract_symbol = self._contract_symbol(symbol)
+            specs = self._instrument_specs.get(contract_symbol, {})
+            volume_tick = specs.get("volume_tick", 0.0001)
+            min_volume = specs.get("min_volume", volume_tick)
+
+            raw_size = size_usd / price
+
+            # Floor to nearest volumeTick step (never send more than requested)
+            import math
+            size = math.floor(raw_size / volume_tick) * volume_tick
+
+            # Determine decimal precision from volumeTick
+            # e.g. 0.1 → 1dp, 0.01 → 2dp, 0.0001 → 4dp
+            decimals = max(0, -int(math.floor(math.log10(volume_tick))))
+            size = round(size, decimals)
+
+            # Enforce minimum volume
+            if size < min_volume:
+                logger.warning(
+                    "order_size_below_minimum",
+                    symbol=symbol,
+                    raw_size=round(raw_size, 8),
+                    rounded_size=size,
+                    min_volume=min_volume,
+                    size_usd=size_usd,
+                )
+                return None
+
+            logger.debug(
+                "order_size_calculated",
+                symbol=symbol,
+                size_usd=size_usd,
+                price=price,
+                raw_size=round(raw_size, 8),
+                volume_tick=volume_tick,
+                final_size=size,
+            )
+            return size
+
         except Exception as e:
             logger.error("calculate_order_size_failed", symbol=symbol, error=str(e))
             return None
