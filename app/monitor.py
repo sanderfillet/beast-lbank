@@ -37,6 +37,7 @@ from app.brain import (
     is_slope_aligned,
     value_zone_multiplier,
 )
+from app.config import SymbolSettings
 from app.lifecycle import close_trade, evaluate_trade
 from app.logging_setup import get_logger
 from app.models import (
