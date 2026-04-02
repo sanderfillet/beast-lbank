@@ -50,7 +50,7 @@ from app.models import (
 )
 
 if TYPE_CHECKING:
-    from app.config import Settings
+    from app.config import Settings, SymbolSettings
     from app.database import TradeDatabase
     from app.exchange import LBankClient
     from app.models import Signal
@@ -185,7 +185,8 @@ class TradeMonitor:
         _prev_high = trade.highest_price
         _prev_low = trade.lowest_price
 
-        result = evaluate_trade(trade, mark_price, self._settings, self._exchange)
+        sym_settings = SymbolSettings(self._settings, trade.symbol)
+        result = evaluate_trade(trade, mark_price, sym_settings, self._exchange)
 
         if result.transitioned and result.new_stage is not None:
             success = await self._database.update_trade_stage(trade, result.new_stage)
@@ -438,7 +439,8 @@ class TradeMonitor:
 
         df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source)
 
-        filter_result = check_pre_execution_filters(trend, current_price, self._settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
+        sym_settings = SymbolSettings(self._settings, sig.symbol)
+        filter_result = check_pre_execution_filters(trend, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
         if not filter_result.passed:
             if filter_result.should_wait:
                 logger.info("signal_filter_wait", signal_id=sig.id, reason=filter_result.rejection_reason)
@@ -502,20 +504,24 @@ class TradeMonitor:
         symbol = sig.symbol
         side = TradeSide.LONG if is_long else TradeSide.SHORT
 
-        exits = calculate_exit_prices(sig.eval_price or sig.entry_price, is_long, self._settings)
+        sym_settings = SymbolSettings(self._settings, symbol)
+        exits = calculate_exit_prices(sig.eval_price or sig.entry_price, is_long, sym_settings)
 
-        # Counter-trend trades use a higher TP2 target
-        if is_counter_trend and self._settings.counter_trend_tp2_trigger_pct != self._settings.trade_tp2_trigger_pct:
+        # Counter-trend: apply per-symbol SL + TP2 overrides
+        if is_counter_trend:
             direction = 1.0 if is_long else -1.0
             base_price = sig.eval_price or sig.entry_price
-            exits.tp2_price = round(base_price * (1 + (self._settings.counter_trend_tp2_trigger_pct / 100) * direction), 2)
+            exits.sl_price = round(base_price * (1 - (sym_settings.counter_trend_sl_pct / 100) * direction), 2)
+            exits.tp2_price = round(base_price * (1 + (sym_settings.counter_trend_tp2_pct / 100) * direction), 2)
 
         quantity: float | None = None
         order_id: str | None = None
         fill_price = sig.eval_price or sig.entry_price
 
         if self._exchange and self._exchange.is_connected:
-            quantity = self._exchange.calculate_order_size(symbol, size_usd)
+            # Per-symbol size override
+            effective_size_usd = sym_settings.symbol_size_usd or size_usd
+            quantity = self._exchange.calculate_order_size(symbol, effective_size_usd)
             if quantity is None:
                 sig.status = SignalStatus.ERROR
                 sig.rejection_reason = "Could not calculate order size"
@@ -747,7 +753,8 @@ class TradeMonitor:
         sig.delta_slope_history = trend.delta_slope_history
 
         df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source)
-        filter_result = check_pre_execution_filters(trend, current_price, self._settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
+        sym_settings = SymbolSettings(self._settings, sig.symbol)
+        filter_result = check_pre_execution_filters(trend, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
 
         if not filter_result.passed:
             if filter_result.should_wait:

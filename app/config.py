@@ -86,6 +86,22 @@ class Settings(BaseSettings):
     trade_trail_lock_pct: float = Field(default=0.9)
     trade_tp2_trigger_pct: float = Field(default=2.5)
     counter_trend_tp2_trigger_pct: float = Field(default=5.0)  # Higher TP2 for counter-trend trades
+
+    # Path to asset.json for per-symbol overrides
+    asset_settings_path: str = Field(default="asset.json")
+
+    @property
+    def asset_settings(self) -> dict[str, dict]:
+        """Load per-asset settings from asset.json. Cached after first load."""
+        import json, os
+        path = self.asset_settings_path
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
     counter_trend_tp2_trigger_pct: float = Field(default=5.0)  # Higher TP for counter-trend trades
 
     # --- Filters ---
@@ -117,3 +133,55 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+# ---------------------------------------------------------------------------
+# Per-symbol settings proxy
+# ---------------------------------------------------------------------------
+
+class SymbolSettings:
+    """Proxy that wraps global Settings and overlays per-symbol overrides.
+
+    Usage:
+        s = SymbolSettings(settings, "BTC")
+        s.trade_initial_sl_pct   # returns BTC override or global default
+        s.size_usd               # returns BTC-specific size or global default
+
+    The proxy delegates every attribute access to the underlying Settings
+    object unless the asset_settings dict provides an override for the symbol.
+    Lookup order: symbol-specific → "default" key → global settings value.
+    """
+
+    def __init__(self, settings: Settings, symbol: str) -> None:
+        object.__setattr__(self, "_settings", settings)
+        # Merge: symbol-specific on top of "default" on top of nothing
+        base = settings.asset_settings.get("default", {})
+        override = settings.asset_settings.get(symbol.upper(), {})
+        merged = {**base, **override}
+        object.__setattr__(self, "_overrides", merged)
+
+    def __getattr__(self, name: str):
+        overrides = object.__getattribute__(self, "_overrides")
+        if name in overrides:
+            return overrides[name]
+        return getattr(object.__getattribute__(self, "_settings"), name)
+
+    # size_usd is not on Settings directly — expose it with a helper
+    @property
+    def symbol_size_usd(self) -> float | None:
+        """Return per-symbol size_usd override, or None to use signal size."""
+        overrides = object.__getattribute__(self, "_overrides")
+        return overrides.get("size_usd", None)
+
+    # Counter-trend overrides (fall back to global counter_trend_tp2_trigger_pct)
+    @property
+    def counter_trend_sl_pct(self) -> float:
+        overrides = object.__getattribute__(self, "_overrides")
+        settings = object.__getattribute__(self, "_settings")
+        return overrides.get("counter_trend_sl_pct", settings.trade_initial_sl_pct)
+
+    @property
+    def counter_trend_tp2_pct(self) -> float:
+        overrides = object.__getattribute__(self, "_overrides")
+        settings = object.__getattribute__(self, "_settings")
+        return overrides.get("counter_trend_tp2_pct", settings.counter_trend_tp2_trigger_pct)
