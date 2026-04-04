@@ -1,0 +1,90 @@
+# ── MONITOR ───────────────────────────────────────────────────────────────────
+# Live logs
+journalctl -u beast-lbank-monitor -f
+
+# Live logs filtered (signals, trades, errors)
+journalctl -u beast-lbank-monitor -f | grep -E "signal|trade|error|slope|macro|entry|exit"
+
+# Last 50 lines
+journalctl -u beast-lbank-monitor -n 50
+
+# Last 50 lines filtered
+journalctl -u beast-lbank-monitor -n 50 --no-pager
+
+# ── SERVICE ───────────────────────────────────────────────────────────────────
+# Restart monitor
+systemctl restart beast-lbank-monitor
+
+# Restart API
+systemctl restart beast-lbank-api
+
+# Restart both
+systemctl restart beast-lbank-monitor beast-lbank-api
+
+# Status
+systemctl status beast-lbank-monitor
+systemctl status beast-lbank-api
+
+# Stop / Start
+systemctl stop beast-lbank-monitor
+systemctl start beast-lbank-monitor
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+# Edit .env
+nano /opt/beast-lbank/.env
+
+# Edit asset.json (per-symbol TP/SL)
+nano /opt/beast-lbank/asset.json
+
+# View current asset.json
+cat /opt/beast-lbank/asset.json
+
+# ── DATABASE ──────────────────────────────────────────────────────────────────
+# Open trades
+sqlite3 /opt/beast-lbank/trades.db "SELECT id, symbol, side, stage, entry_price, sl_price, tp1_price, tp2_price FROM trades WHERE stage != 'closed' ORDER BY created_at DESC;"
+
+# Recent closed trades
+sqlite3 /opt/beast-lbank/trades.db "SELECT id, symbol, side, close_reason, pnl_usd FROM trades WHERE stage = 'closed' ORDER BY closed_at DESC LIMIT 20;"
+
+# Pending signals
+sqlite3 /opt/beast-lbank/trades.db "SELECT id, symbol, action, status, created_at FROM signals WHERE status IN ('pending_eval','pending_memory') ORDER BY created_at DESC;"
+
+# Recent signals
+sqlite3 /opt/beast-lbank/trades.db "SELECT id, symbol, action, status, rejection_reason FROM signals ORDER BY created_at DESC LIMIT 20;"
+
+# Account snapshots
+sqlite3 /opt/beast-lbank/trades.db "SELECT timestamp, total_equity, equity_delta, pnl_pct FROM account_snapshots ORDER BY timestamp DESC LIMIT 10;"
+
+# ── TEST SIGNAL ───────────────────────────────────────────────────────────────
+# Send test long signal
+curl -X POST http://localhost:8002/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"action": "entry_long", "symbol": "BTC/USDT:USDT", "token": "'$(grep WEBHOOK_TOKEN /opt/beast-lbank/.env | cut -d= -f2)'"}'
+
+# Send test short signal
+curl -X POST http://localhost:8002/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"action": "entry_short", "symbol": "BTC/USDT:USDT", "token": "'$(grep WEBHOOK_TOKEN /opt/beast-lbank/.env | cut -d= -f2)'"}'
+
+# ── GIT ───────────────────────────────────────────────────────────────────────
+# Pull latest
+cd /opt/beast-lbank && git pull
+
+# Status
+cd /opt/beast-lbank && git status
+
+# Commit and push
+cd /opt/beast-lbank && git add -A && git commit -m "message" && git push
+
+# ── PROCESS ───────────────────────────────────────────────────────────────────
+# Check running processes
+ps aux | grep beast
+
+# Check ports
+ss -tlnp | grep 8002
+
+# Disk usage
+df -h
+
+# Memory usage
+free -h
