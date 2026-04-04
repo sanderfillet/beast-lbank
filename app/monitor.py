@@ -371,14 +371,19 @@ class TradeMonitor:
             await self._database.update_signal(sig)
             return
 
-        df = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.candle_timeframe)
+        # Slope gate — 5m candles (responsive, micro momentum)
+        df_slope = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.slope_timeframe)
+
+        # Macro gate — 15m candles (slow, structural trend)
+        df_macro = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.macro_timeframe)
 
         atr_df = None
-        if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.candle_timeframe:
+        if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.slope_timeframe:
             atr_df = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.atr_candle_limit, timeframe=self._settings.atr_timeframe)
 
-        trend = calculate_trend_filters(
-            df,
+        # trend_slope: used for is_slope_aligned (5m)
+        trend_slope = calculate_trend_filters(
+            df_slope,
             ema_macro_span=self._settings.ema_macro_span,
             slope_smooth_bars=self._settings.slope_smooth_bars,
             delta_smooth_bars=self._settings.delta_smooth_bars,
@@ -393,6 +398,24 @@ class TradeMonitor:
             atr_df=atr_df,
         )
 
+        # trend_macro: used for is_macro_aligned (15m EMA50/200)
+        trend_macro = calculate_trend_filters(
+            df_macro,
+            ema_macro_span=self._settings.ema_macro_span,
+            slope_smooth_bars=self._settings.slope_smooth_bars,
+            delta_smooth_bars=self._settings.delta_smooth_bars,
+            scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
+            slope_method=self._settings.slope_method,
+            use_delta_ema=False,
+            delta_ntz=self._settings.delta_ntz,
+            use_atr_regime=False,
+            atr_length=self._settings.atr_length,
+            atr_ema_length=self._settings.atr_ema_length,
+            atr_fast_threshold=self._settings.atr_fast_threshold,
+        )
+
+        trend = trend_slope  # keep trend alias for signal metadata logging
+
         sig.ema_slope_value = trend.ema_scaled
         sig.ema_slope_prev = trend.ema_scaled_prev
         sig.delta_slope_value = trend.delta
@@ -406,7 +429,7 @@ class TradeMonitor:
         logger.info("trend_data", signal_id=sig.id, symbol=sig.symbol, action=sig.action.value, ema_scaled=round(trend.ema_scaled, 4), delta=round(trend.delta, 4), slope_rising=trend.slope_rising)
 
         is_counter_trend = False
-        if not is_slope_aligned(sig.action.value, trend):
+        if not is_slope_aligned(sig.action.value, trend_slope):
             sig.status = SignalStatus.PENDING_MEMORY
             sig.memory_entered_at = datetime.now(UTC)
             sig.last_memory_slope = trend.ema_scaled
@@ -416,7 +439,7 @@ class TradeMonitor:
                 await self._notifier.notify_signal_memory(sig)
             return
 
-        if not is_macro_aligned(sig.action.value, trend):
+        if not is_macro_aligned(sig.action.value, trend_macro):
             if self._settings.allow_counter_trend_half_size:
                 is_counter_trend = True
             else:
@@ -671,13 +694,14 @@ class TradeMonitor:
                 return
             logger.info("opposing_position_detected_deferred", signal_id=sig.id, symbol=sig.symbol, existing_side=existing[0].side.value)
 
-        df = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.candle_timeframe)
+        df_slope = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.slope_timeframe)
+        df_macro = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.macro_timeframe)
         atr_df = None
-        if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.candle_timeframe:
+        if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.slope_timeframe:
             atr_df = await fetch_candles(sig.symbol, self._settings.ccxt_exchange_source, limit=self._settings.atr_candle_limit, timeframe=self._settings.atr_timeframe)
 
-        trend = calculate_trend_filters(
-            df,
+        trend_slope = calculate_trend_filters(
+            df_slope,
             ema_macro_span=self._settings.ema_macro_span,
             slope_smooth_bars=self._settings.slope_smooth_bars,
             delta_smooth_bars=self._settings.delta_smooth_bars,
@@ -691,6 +715,23 @@ class TradeMonitor:
             atr_fast_threshold=self._settings.atr_fast_threshold,
             atr_df=atr_df,
         )
+
+        trend_macro = calculate_trend_filters(
+            df_macro,
+            ema_macro_span=self._settings.ema_macro_span,
+            slope_smooth_bars=self._settings.slope_smooth_bars,
+            delta_smooth_bars=self._settings.delta_smooth_bars,
+            scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
+            slope_method=self._settings.slope_method,
+            use_delta_ema=False,
+            delta_ntz=self._settings.delta_ntz,
+            use_atr_regime=False,
+            atr_length=self._settings.atr_length,
+            atr_ema_length=self._settings.atr_ema_length,
+            atr_fast_threshold=self._settings.atr_fast_threshold,
+        )
+
+        trend = trend_slope
 
         is_long = "long" in sig.action.value
 
@@ -723,13 +764,13 @@ class TradeMonitor:
             return
 
         is_counter_trend = False
-        if not is_slope_aligned(sig.action.value, trend):
+        if not is_slope_aligned(sig.action.value, trend_slope):
             sig.last_memory_slope = current_slope
             sig.memory_eval_count += 1
             await self._database.update_signal(sig)
             return
 
-        if not is_macro_aligned(sig.action.value, trend):
+        if not is_macro_aligned(sig.action.value, trend_macro):
             if self._settings.allow_counter_trend_half_size:
                 is_counter_trend = True
             else:
@@ -819,12 +860,13 @@ class TradeMonitor:
 
         for symbol, symbol_trades in by_symbol.items():
             try:
-                df = await fetch_candles(symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.candle_timeframe)
+                df_slope = await fetch_candles(symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.slope_timeframe)
+                df_macro = await fetch_candles(symbol, self._settings.ccxt_exchange_source, limit=self._settings.candle_fetch_limit, timeframe=self._settings.macro_timeframe)
                 atr_df = None
-                if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.candle_timeframe:
+                if self._settings.use_atr_regime and self._settings.atr_timeframe != self._settings.slope_timeframe:
                     atr_df = await fetch_candles(symbol, self._settings.ccxt_exchange_source, limit=self._settings.atr_candle_limit, timeframe=self._settings.atr_timeframe)
-                trend = calculate_trend_filters(
-                    df,
+                trend_slope = calculate_trend_filters(
+                    df_slope,
                     ema_macro_span=self._settings.ema_macro_span,
                     slope_smooth_bars=self._settings.slope_smooth_bars,
                     delta_smooth_bars=self._settings.delta_smooth_bars,
@@ -838,16 +880,31 @@ class TradeMonitor:
                     atr_fast_threshold=self._settings.atr_fast_threshold,
                     atr_df=atr_df,
                 )
+                trend_macro = calculate_trend_filters(
+                    df_macro,
+                    ema_macro_span=self._settings.ema_macro_span,
+                    slope_smooth_bars=self._settings.slope_smooth_bars,
+                    delta_smooth_bars=self._settings.delta_smooth_bars,
+                    scale_window=int(self._settings.ema_calibration_base * self._settings.ema_calibration_factor),
+                    slope_method=self._settings.slope_method,
+                    use_delta_ema=False,
+                    delta_ntz=self._settings.delta_ntz,
+                    use_atr_regime=False,
+                    atr_length=self._settings.atr_length,
+                    atr_ema_length=self._settings.atr_ema_length,
+                    atr_fast_threshold=self._settings.atr_fast_threshold,
+                )
+                trend = trend_slope
             except Exception:
                 logger.exception("slope_sl_candle_fetch_error", symbol=symbol)
                 continue
 
             for trade in symbol_trades:
-                is_counter_trend_trade = (trade.side == TradeSide.LONG and trend.ema_50 < trend.ema_200) or (trade.side == TradeSide.SHORT and trend.ema_50 > trend.ema_200)
+                is_counter_trend_trade = (trade.side == TradeSide.LONG and trend_macro.ema_50 < trend_macro.ema_200) or (trade.side == TradeSide.SHORT and trend_macro.ema_50 > trend_macro.ema_200)
                 if is_counter_trend_trade:
                     continue
 
-                should_close = (trade.side == TradeSide.LONG and trend.ema_50 < trend.ema_200) or (trade.side == TradeSide.SHORT and trend.ema_50 > trend.ema_200)
+                should_close = (trade.side == TradeSide.LONG and trend_macro.ema_50 < trend_macro.ema_200) or (trade.side == TradeSide.SHORT and trend_macro.ema_50 > trend_macro.ema_200)
                 if not should_close:
                     continue
 

@@ -56,13 +56,15 @@ class Settings(BaseSettings):
     # --- Candle Settings ---
     ccxt_exchange_source: str = Field(default="binance")
     candle_timeframe: str = Field(default="15m")
+    slope_timeframe: str = Field(default="5m")
+    macro_timeframe: str = Field(default="15m")
     candle_fetch_limit: int = Field(default=1500)
     atr_timeframe: str = Field(default="5m")
     atr_candle_limit: int = Field(default=1500)
 
     # --- EMA Settings ---
     ema_macro_span: int = Field(default=120)
-    slope_smooth_bars: int = Field(default=7)
+    slope_smooth_bars: int = Field(default=5)
     delta_smooth_bars: int = Field(default=3)
     ema_calibration_base: int = Field(default=50)
     ema_calibration_factor: float = Field(default=10.0)
