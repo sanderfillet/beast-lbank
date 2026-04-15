@@ -464,7 +464,7 @@ class TradeMonitor:
         df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source)
 
         sym_settings = SymbolSettings(self._settings, sig.symbol)
-        filter_result = check_pre_execution_filters(trend, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
+        filter_result = check_pre_execution_filters(trend_macro, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
         if not filter_result.passed:
             if filter_result.should_wait:
                 logger.info("signal_filter_wait", signal_id=sig.id, reason=filter_result.rejection_reason)
@@ -477,7 +477,7 @@ class TradeMonitor:
                 await self._notifier.notify_signal_rejected(sig)
             return
 
-        vz_multiplier = value_zone_multiplier(df, is_long, self._settings.vz_memory_bars)
+        vz_multiplier = value_zone_multiplier(df_macro, is_long, self._settings.vz_memory_bars)
 
         if is_counter_trend:
             actual_size = sig.size_usd * 0.5
@@ -796,7 +796,7 @@ class TradeMonitor:
 
         df_2h = await fetch_2h_candles(sig.symbol, self._settings.ccxt_exchange_source)
         sym_settings = SymbolSettings(self._settings, sig.symbol)
-        filter_result = check_pre_execution_filters(trend, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
+        filter_result = check_pre_execution_filters(trend_macro, current_price, sym_settings, is_long=is_long, is_counter_trend=is_counter_trend, df_2h=df_2h)
 
         if not filter_result.passed:
             if filter_result.should_wait:
@@ -812,7 +812,7 @@ class TradeMonitor:
                 await self._notifier.notify_signal_rejected(sig)
             return
 
-        vz_multiplier = value_zone_multiplier(df, is_long, self._settings.vz_memory_bars)
+        vz_multiplier = value_zone_multiplier(df_macro, is_long, self._settings.vz_memory_bars)
 
         if is_counter_trend:
             actual_size = sig.size_usd * 0.5
