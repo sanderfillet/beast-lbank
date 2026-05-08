@@ -1,0 +1,383 @@
+INFO:     Started server process [161084]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8003 (Press CTRL+C to quit)
+INFO:     127.0.0.1:40748 - "GET / HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60913 - "GET / HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60913 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60913 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60913 - "GET /trades HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60914 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60913 - "GET /-/static/codemirror-5.57.0.min.css HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60927 - "GET /-/static/codemirror-5.57.0.min.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60925 - "GET /-/static/codemirror-5.57.0-sql.min.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60928 - "GET /-/static/cm-resize-1.0.1.min.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60926 - "GET /-/static/sql-formatter-2.3.3.min.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60939 - "GET /trades/signals HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60938 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60942 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60996 - "GET /trades/signals?_sort=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60998 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60997 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61015 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61016 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61017 - "GET /-/static/table.js HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     91.231.89.64:56317 - "GET / HTTP/1.1" 200 OK
+INFO:     91.196.152.247:40453 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     193.32.162.28:55126 - "POST / HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:55182 - "POST /_next HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:55200 - "POST /api HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:55212 - "POST /_next/server HTTP/1.1" 404 Not Found
+INFO:     193.32.162.28:55222 - "POST /app HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:55224 - "POST /api/route HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     16.58.56.214:54474 - "GET / HTTP/1.1" 200 OK
+INFO:     16.58.56.214:37584 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     45.79.115.59:46174 - "GET / HTTP/1.1" 200 OK
+INFO:     172.104.11.34:47672 - "GET / HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61379 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61380 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61381 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61379 - "GET /favicon.ico HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     18.218.118.203:35442 - "GET / HTTP/1.1" 200 OK
+INFO:     18.218.118.203:47664 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     77.250.168.162:55699 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55698 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55701 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55699 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55772 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55773 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55774 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:56067 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:56068 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:56069 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57879 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57880 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57881 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57989 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57990 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57988 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58033 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58035 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58032 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58032 - "GET /trades/signals?_sort=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58109 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58110 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58111 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58159 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58160 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58162 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58209 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58210 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58212 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58324 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58325 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58327 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58411 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58412 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58413 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58459 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58460 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58462 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58554 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58553 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58555 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58578 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58580 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58579 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58831 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58832 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58833 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59234 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59233 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59235 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59675 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59676 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59677 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59675 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59676 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59677 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61172 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61171 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61174 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61206 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61207 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61214 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63421 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63422 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63420 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63421 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63421 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63442 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63421 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64442 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64444 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64443 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64473 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64472 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64474 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54359 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54358 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54360 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54359 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54619 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54628 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54620 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54696 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54697 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54698 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54828 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54829 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54831 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54913 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54914 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:54912 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59697 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59700 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59698 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59697 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     45.33.14.197:56174 - "GET / HTTP/1.1" 200 OK
+INFO:     69.164.217.245:52102 - "GET / HTTP/1.1" 200 OK
+INFO:     172.236.127.133:43896 - "GET / HTTP/1.1" 200 OK
+INFO:     172.236.119.165:54048 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     212.73.148.23:60596 - "GET / HTTP/1.1" 200 OK
+INFO:     212.73.148.23:60598 - "GET /favicon.ico HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     156.232.100.95:39456 - "GET / HTTP/1.1" 200 OK
+INFO:     156.232.100.95:32968 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     156.232.100.95:32984 - "GET /robots.txt HTTP/1.1" 404 Not Found
+INFO:     156.232.100.95:32988 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+INFO:     156.232.100.95:32998 - "GET /.json HTTP/1.1" 200 OK
+INFO:     156.232.100.95:33014 - "GET /config.json HTTP/1.1" 404 Not Found
+INFO:     156.232.100.95:33024 - "GET /sse HTTP/1.1" 404 Not Found
+INFO:     156.232.100.95:33038 - "GET /mcp HTTP/1.1" 404 Not Found
+INFO:     156.232.100.95:33050 - "GET /mcp-sse HTTP/1.1" 404 Not Found
+WARNING:  Invalid HTTP request received.
+INFO:     18.218.118.203:54266 - "GET / HTTP/1.1" 200 OK
+INFO:     18.218.118.203:35390 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     16.58.56.214:51556 - "GET / HTTP/1.1" 200 OK
+INFO:     16.58.56.214:54510 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     94.247.2.48:61872 - "GET /trades/signals?_sort=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61873 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61874 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61885 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61886 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61887 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61898 - "GET /trades/signals?_sort_desc=-created_at HTTP/1.1" 500 Internal Server Error
+INFO:     94.247.2.48:61898 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61898 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61899 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:61913 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:56818 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:56817 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:56819 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:56818 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     5.187.35.142:61662 - "GET /../../../../../../etc/passwd HTTP/1.1" 302 Found
+INFO:     66.228.62.150:45723 - "GET / HTTP/1.1" 200 OK
+INFO:     45.79.207.71:36700 - "GET / HTTP/1.1" 200 OK
+INFO:     172.104.11.34:45200 - "GET / HTTP/1.1" 200 OK
+INFO:     172.236.228.208:37602 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     77.250.168.162:57499 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57502 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57500 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57499 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57583 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57582 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:57584 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58312 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58313 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58315 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58364 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58365 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58363 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58929 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58928 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:58936 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59070 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59069 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59071 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59230 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59232 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59231 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59495 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59496 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:59497 - "GET /-/static/table.js HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     18.116.101.220:56750 - "GET / HTTP/1.1" 200 OK
+INFO:     18.116.101.220:48250 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     77.250.168.162:60616 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60618 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60617 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60632 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60631 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60633 - "GET /-/static/table.js HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     77.250.168.162:60959 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60960 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60961 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60979 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60978 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60980 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60978 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60993 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:60994 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61098 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61097 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61099 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61234 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61233 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61235 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61589 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61590 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61588 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61772 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61773 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61774 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61806 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61808 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:61807 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62525 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62526 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62528 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62545 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62546 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62544 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62554 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62556 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62553 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62566 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62567 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62568 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62597 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62598 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62596 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62901 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62900 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:62906 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63843 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63844 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:63845 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64252 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64253 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64254 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64371 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64372 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64370 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64782 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64781 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64786 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64782 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64982 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64981 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:64983 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65012 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65014 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65013 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65012 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65014 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65013 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65039 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65040 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65048 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65066 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65065 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65067 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65137 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65139 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65138 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65156 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65158 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65157 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65169 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65170 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65172 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65328 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65329 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:65330 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50298 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50299 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50302 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     85.217.149.10:56842 - "GET / HTTP/1.1" 200 OK
+INFO:     85.217.149.10:56858 - "GET /favicon.ico HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     18.116.101.220:36460 - "GET / HTTP/1.1" 200 OK
+INFO:     18.116.101.220:49576 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     45.33.12.122:40693 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     192.155.90.220:39538 - "GET / HTTP/1.1" 200 OK
+INFO:     66.228.53.157:52832 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     3.129.187.38:54416 - "GET / HTTP/1.1" 200 OK
+INFO:     3.129.187.38:54224 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     193.32.162.28:58182 - "POST / HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:58274 - "POST /_next HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:58328 - "POST /api HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:58364 - "POST /_next/server HTTP/1.1" 404 Not Found
+INFO:     193.32.162.28:58384 - "POST /app HTTP/1.1" 405 Method Not Allowed
+INFO:     193.32.162.28:58396 - "POST /api/route HTTP/1.1" 404 Not Found
+INFO:     165.22.241.117:56420 - "GET / HTTP/1.1" 200 OK
+INFO:     165.22.241.117:56426 - "GET /robots.txt HTTP/1.1" 404 Not Found
+INFO:     165.22.241.117:56432 - "GET /.well-known/security.txt HTTP/1.1" 404 Not Found
+INFO:     165.22.241.117:56422 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     165.22.241.117:56446 - "GET /.well-known/robots.txt HTTP/1.1" 404 Not Found
+INFO:     165.22.241.117:56454 - "GET /security.txt HTTP/1.1" 404 Not Found
+INFO:     139.59.96.21:56836 - "GET /client/get-version/ HTTP/1.1" 302 Found
+INFO:     139.59.96.21:56836 - "GET /client/get-version HTTP/1.1" 404 Not Found
+INFO:     212.73.148.5:42504 - "GET / HTTP/1.1" 200 OK
+INFO:     212.73.148.5:42506 - "GET /favicon.ico HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     16.58.56.214:59202 - "GET / HTTP/1.1" 200 OK
+INFO:     16.58.56.214:38154 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     94.247.2.48:52760 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52761 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52762 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52894 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52895 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52897 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     94.247.2.48:52894 - "GET /favicon.ico HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+INFO:     91.231.89.6:53861 - "GET / HTTP/1.1" 200 OK
+INFO:     91.231.89.236:57859 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     5.187.35.26:16368 - "GET /../../../../../../etc/passwd HTTP/1.1" 302 Found
+INFO:     77.250.168.162:50715 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50716 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50717 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:50715 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     204.76.203.215:59706 - "GET /../../../../../../etc/passwd HTTP/1.1" 302 Found
+WARNING:  Invalid HTTP request received.
+INFO:     3.132.26.232:59250 - "GET / HTTP/1.1" 200 OK
+INFO:     3.132.26.232:44304 - "GET / HTTP/1.1" 200 OK
+WARNING:  Invalid HTTP request received.
+WARNING:  Invalid HTTP request received.
+INFO:     77.250.168.162:55206 - "GET /trades/signals?_sort_desc=created_at HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55205 - "GET /-/static/app.css?d59929 HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55207 - "GET /-/static/table.js HTTP/1.1" 200 OK
+INFO:     77.250.168.162:55206 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     69.164.217.74:40512 - "GET / HTTP/1.1" 200 OK
+INFO:     172.236.228.227:29368 - "GET / HTTP/1.1" 200 OK
+INFO:     45.56.79.53:43576 - "GET / HTTP/1.1" 200 OK
+INFO:     172.236.228.38:12784 - "GET / HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [161084]
