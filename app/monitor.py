@@ -429,7 +429,7 @@ class TradeMonitor:
         logger.info("trend_data", signal_id=sig.id, symbol=sig.symbol, action=sig.action.value, ema_scaled=round(trend.ema_scaled, 4), delta=round(trend.delta, 4), slope_rising=trend.slope_rising)
 
         is_counter_trend = False
-        if not is_slope_aligned(sig.action.value, trend_slope):
+        if self._settings.entry_mode == 'slope_gate' and not is_slope_aligned(sig.action.value, trend_slope):
             sig.status = SignalStatus.PENDING_MEMORY
             sig.memory_entered_at = datetime.now(UTC)
             sig.last_memory_slope = trend.ema_scaled

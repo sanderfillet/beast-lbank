@@ -153,6 +153,7 @@ class Trade(BaseModel):
 
     # Stage flags
     be_triggered: bool = Field(default=False, description="Whether breakeven has been triggered")
+    dd_be_triggered: bool = Field(default=False, description="Whether drawdown BE has been triggered")
     partial_exit_done: bool = Field(default=False, description="Whether partial exit has executed")
     trailing_active: bool = Field(default=False, description="Whether trailing stop is active")
     trailing_offset: float = Field(

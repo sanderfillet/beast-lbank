@@ -178,6 +178,31 @@ def _handle_entry(
     LONG:  true_be = entry * (1 + fee_pct*2/100)
     SHORT: true_be = entry * (1 - fee_pct*2/100)
     """
+    # ── DD BE: move TP1 to entry+fees when drawdown hits ─────────────────
+    if settings.dd_be_enabled and not trade.dd_be_triggered and not trade.be_triggered:
+        direction = 1 if trade.side == TradeSide.LONG else -1
+        dd_hit = (
+            (trade.side == TradeSide.LONG  and mark_price <= trade.entry_price * (1 - settings.dd_be_trigger_pct / 100)) or
+            (trade.side == TradeSide.SHORT and mark_price >= trade.entry_price * (1 + settings.dd_be_trigger_pct / 100))
+        )
+        if dd_hit:
+            fee_mult_dd = (settings.exchange_fee_pct * 2) / 100
+            if trade.side == TradeSide.LONG:
+                new_tp1 = round(trade.entry_price * (1 + fee_mult_dd), 5)
+            else:
+                new_tp1 = round(trade.entry_price * (1 - fee_mult_dd), 5)
+            trade.tp1_price      = new_tp1
+            trade.dd_be_triggered = True
+            logger.info(
+                "dd_be_tp1_moved",
+                trade_id   = trade.id,
+                symbol     = trade.symbol,
+                mark_price = mark_price,
+                new_tp1    = new_tp1,
+                dd_pct     = settings.dd_be_trigger_pct,
+            )
+
+    # ── Normal BE trigger ─────────────────────────────────────────────────────
     if not _check_trigger(mark_price, trade.entry_price, settings.trade_be_trigger_pct, trade.side):
         return StageResult()
 
