@@ -59,12 +59,12 @@ sqlite3 /opt/beast-lbank/trades.db "SELECT timestamp, total_equity, equity_delta
 # Send test long signal
 curl -X POST http://localhost:8002/webhook \
   -H "Content-Type: application/json" \
-  -d '{"action": "entry_long", "symbol": "BTC/USDT:USDT", "token": "'$(grep WEBHOOK_TOKEN /opt/beast-lbank/.env | cut -d= -f2)'"}'
+  -d '{"secret": "bridge-tokyo", "action": "entry_long", "signal_type": "liquidation_bubble", "symbol": "ETH", "entry_price": "1600", "size_usd": "30"}'
 
 # Send test short signal
 curl -X POST http://localhost:8002/webhook \
   -H "Content-Type: application/json" \
-  -d '{"action": "entry_short", "symbol": "BTC/USDT:USDT", "token": "'$(grep WEBHOOK_TOKEN /opt/beast-lbank/.env | cut -d= -f2)'"}'
+  -d '{"secret": "bridge-tokyo", "action": "entry_short", "signal_type": "liquidation_bubble", "symbol": "ETH", "entry_price": "1600", "size_usd": "30"}'
 
 # ── GIT ───────────────────────────────────────────────────────────────────────
 # Pull latest
