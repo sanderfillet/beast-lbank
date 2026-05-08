@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     signal_eval_delay_minutes: int = Field(default=25)
     entry_mode: str = Field(default="slope_gate")  # 'slope_gate' or 'signal_delay'
 
+    exchange_fee_pct: float = Field(default=0.05)  # LBank taker fee 0.05%
+
     # Drawdown BE — move TP1 to entry+fees when price drops X% against us
     dd_be_enabled:     bool  = Field(default=False)
     dd_be_trigger_pct: float = Field(default=0.5)
