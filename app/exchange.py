@@ -38,6 +38,7 @@ Rate limits:
 from __future__ import annotations
 
 import base64
+import os 
 import hashlib
 import time
 import uuid
@@ -63,20 +64,28 @@ _PRODUCT_GROUP = "SwapU"
 _EXCHANGE_ID   = "Exchange"
 _TRADE_DELAY   = 1.0  # seconds between trading API calls (1 req/10s limit)
 
+_LEAD_TRADER_MODE = os.getenv("LEAD_TRADER_MODE", "false").strip().lower() in ("1", "true", "yes", "on")
+
 # Public endpoints
 _EP_TIME   = "/cfd/openApi/v1/pub/getTime"
 _EP_MARKET = "/cfd/openApi/v1/pub/marketData"
 
-# Private endpoints
+# Private endpoints (account / query / cancel — same in both modes)
 _EP_ACCOUNT        = "/cfd/openApi/v1/prv/account"
 _EP_POSITION       = "/cfd/openApi/v1/prv/position"
-_EP_PLACE_ORDER    = "/cfd/openApi/v1/prv/placeOrder"
 _EP_CANCEL_ORDER   = "/cfd/openApi/v1/prv/cancelOrder"
 _EP_OPEN_ORDERS    = "/cfd/openApi/v1/prv/order"
-_EP_PLACE_SL_TP    = "/cfd/openApi/v1/prv/placeStopProfitAndLossOrder"
-_EP_UPDATE_SL_TP   = "/cfd/openApi/v1/prv/placeStopProfitAndLossPosition"
 _EP_INSTRUMENT     = "/cfd/openApi/v1/pub/instrument"
 
+# Order-placement endpoints — switched by LEAD_TRADER_MODE
+if _LEAD_TRADER_MODE:
+    _EP_PLACE_ORDER  = "/cfd/openApi/v1/prv/traderPlaceOrder"
+    _EP_PLACE_SL_TP  = "/cfd/openApi/v1/prv/traderPlaceStopProfitAndLossOrder"
+    _EP_UPDATE_SL_TP = "/cfd/openApi/v1/prv/traderPlaceStopProfitAndLossPosition"
+else:
+    _EP_PLACE_ORDER  = "/cfd/openApi/v1/prv/placeOrder"
+    _EP_PLACE_SL_TP  = "/cfd/openApi/v1/prv/placeStopProfitAndLossOrder"
+    _EP_UPDATE_SL_TP = "/cfd/openApi/v1/prv/placeStopProfitAndLossPosition"
 
 # ─────────────────────────── data classes ────────────────────────────────────
 
@@ -224,7 +233,12 @@ class LBankClient:
             if not self._ok(res):
                 raise LBankExchangeError(f"getTime error: {res}")
             self.is_connected = True
-            logger.info("exchange_connected", base_url=self.base_url, sign_method=self.sign_method)
+            logger.info(
+                "exchange_connected",
+                base_url=self.base_url,
+                sign_method=self.sign_method,
+                lead_trader_mode=_LEAD_TRADER_MODE,
+            )
         except Exception as e:
             logger.error("exchange_connect_failed", error=str(e))
             raise LBankExchangeError(f"Failed to connect: {e}") from e
