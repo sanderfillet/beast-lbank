@@ -88,3 +88,19 @@ df -h
 
 # Memory usage
 free -h
+
+# Save BTC signals from DB on the server: 
+sqlite3 -header -csv /opt/beast/trades.db "
+SELECT 
+    id, symbol, action, status, entry_price, actual_size_usd,
+    ema_slope_value, slope_rising, rejection_reason, trade_id,
+    datetime(created_at) as created_at,
+    datetime(evaluated_at) as evaluated_at
+FROM signals 
+WHERE symbol = 'BTC'
+ORDER BY created_at DESC;" > /tmp/btc_signals.csv
+
+echo "Done — $(wc -l < /tmp/btc_signals.csv) rows"
+
+#Save locally: 
+scp root@45.32.12.63:/tmp/btc_signals.csv ~/Downloads/btc_signals.csv
