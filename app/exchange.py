@@ -430,7 +430,7 @@ class LBankClient:
                     unrealized_pnl=float(pos.get("unrealizedProfit", 0)),
                     leverage=int(float(pos.get("leverage", 1))),
                     position_id=str(pos.get("positionID", "")),
-                    trade_unit_id=str(pos.get("tradeUnitID"), ""),
+                    trade_unit_id=str(pos.get("tradeUnitID") or ""),
                 )
             return None
         except Exception as e:
@@ -540,7 +540,7 @@ class LBankClient:
                 avg_price = float(avg_price_str) if avg_price_str else None
                 filled_qty_str = data.get("executedQty")
                 filled_qty = float(filled_qty_str) if filled_qty_str else size
-                trade_unit_id = str(data.get("tradeUnitID" or "")
+                trade_unit_id = str(data.get("tradeUnitID") or "")
 
                 logger.info(
                     "order_success",
