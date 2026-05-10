@@ -538,6 +538,7 @@ class TradeMonitor:
             base_price = sig.eval_price or sig.entry_price
             exits.sl_price = round(base_price * (1 - (sym_settings.counter_trend_sl_pct / 100) * direction), 2)
             exits.tp2_price = round(base_price * (1 + (sym_settings.counter_trend_tp2_pct / 100) * direction), 2)
+            exits.tp1_price = round((base_price + exits.tp2_price) / 2, 2)
 
         quantity: float | None = None
         order_id: str | None = None
