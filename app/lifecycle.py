@@ -85,6 +85,7 @@ def _move_stop_loss(
             side=trade.side,
             size=trade.remaining_quantity,
             new_trigger_price=new_sl_price,
+            trade_unit_id=trade.trade_unit_id,
         )
 
         if result.success:
