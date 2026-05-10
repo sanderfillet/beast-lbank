@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS trades (
     signal_id TEXT,
     ema_slope_value REAL,
     delta_slope_value REAL,
-    slope_rising INTEGER, 
+    slope_rising INTEGER,
     market_type TEXT NOT NULL DEFAULT 'perp'
 );
 """
@@ -256,7 +256,8 @@ class TradeDatabase:
                 tp1_fill_price, pnl_usd, pnl_pct,
                 entry_order_id, sl_order_id, tp1_order_id, tp2_order_id,
                 signal_id, ema_slope_value, delta_slope_value, slope_rising,
-                atr_regime_pct, is_fast_market, market_type, is_counter_trend
+                atr_regime_pct, is_fast_market, market_type, is_counter_trend,
+                trade_unit_id
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -265,7 +266,8 @@ class TradeDatabase:
                 ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?, ?
+                ?, ?, ?, ?,
+                ?
             )
             """,
             _trade_to_row(trade),
@@ -294,7 +296,8 @@ class TradeDatabase:
                 pnl_usd = ?, pnl_pct = ?,
                 entry_order_id = ?, sl_order_id = ?,
                 tp1_order_id = ?, tp2_order_id = ?,
-                is_counter_trend = ?
+                is_counter_trend = ?,
+                trade_unit_id = ?
             WHERE id = ?
             """,
             (
@@ -319,6 +322,7 @@ class TradeDatabase:
                 trade.tp1_order_id,
                 trade.tp2_order_id,
                 int(trade.is_counter_trend),
+                trade.trade_unit_id,
                 trade.id,
             ),
         )
@@ -809,6 +813,7 @@ def _trade_to_row(trade: Trade) -> tuple:
         int(trade.is_fast_market) if trade.is_fast_market is not None else None,
         trade.market_type.value,
         int(trade.is_counter_trend),
+        trade.trade_unit_id,
     )
 
 
@@ -851,6 +856,7 @@ def _row_to_trade(row: aiosqlite.Row) -> Trade:
         is_fast_market=bool(row["is_fast_market"]) if "is_fast_market" in row.keys() and row["is_fast_market"] is not None else None,
         market_type=MarketType(row["market_type"]) if "market_type" in row.keys() else MarketType.PERP,
         is_counter_trend=bool(row["is_counter_trend"]) if "is_counter_trend" in row.keys() and row["is_counter_trend"] is not None else False,
+        trade_unit_id=row["trade_unit_id"] if "trade_unit_id" in row.keys() else None,
     )
 
 
