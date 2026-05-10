@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS trades (
     quantity REAL NOT NULL,
     remaining_quantity REAL NOT NULL,
     be_triggered INTEGER NOT NULL DEFAULT 0,
+    dd_be_triggered INTEGER NOT NULL DEFAULT 0,
     partial_exit_done INTEGER NOT NULL DEFAULT 0,
     trailing_active INTEGER NOT NULL DEFAULT 0,
     trailing_offset REAL NOT NULL DEFAULT 0.0,
@@ -172,6 +173,7 @@ SIGNAL_MIGRATIONS = [
     "ALTER TABLE signals ADD COLUMN market_type TEXT NOT NULL DEFAULT 'perp'",
     "ALTER TABLE trades ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE trades ADD COLUMN trade_unit_id TEXT",
+    "ALTER TABLE trades ADD COLUMN dd_be_triggered INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE signals ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
 ]
 
@@ -250,7 +252,7 @@ class TradeDatabase:
             """
             INSERT INTO trades (
                 id, symbol, side, stage, entry_price, sl_price, tp1_price, tp2_price,
-                quantity, remaining_quantity, be_triggered, partial_exit_done,
+                quantity, remaining_quantity, be_triggered, dd_be_triggered, partial_exit_done,
                 trailing_active, trailing_offset, highest_price, lowest_price,
                 created_at, updated_at, closed_at, close_reason, close_price,
                 tp1_fill_price, pnl_usd, pnl_pct,

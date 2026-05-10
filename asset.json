@@ -11,7 +11,8 @@
         "max_ema_gap_pct": 5.0,
         "min_ema_gap_pct": 0.0,
         "max_chase_pct": 0.8,
-        "size_usd": 30.0
+        "size_usd": 30.0,
+        "dd_be_trigger_pct":0.4,
     },
     "ETH": {
         "trade_initial_sl_pct": 2.5,
