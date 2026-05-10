@@ -179,19 +179,9 @@ SIGNAL_MIGRATIONS = [
 
 
 class TradeDatabase:
-    """Async SQLite database for trade persistence.
-
-    Handles all CRUD operations for trades and ensures the schema
-    exists on initialization.
-    """
+    """Async SQLite database for trade persistence."""
 
     def __init__(self, db_path: str | Path = "trades.db") -> None:
-        """Initialize database with path.
-
-        Args:
-            db_path: Path to the SQLite database file.
-                     Use ":memory:" for in-memory database (testing).
-        """
         self.db_path = str(db_path)
         self._db: aiosqlite.Connection | None = None
 
@@ -211,11 +201,9 @@ class TradeDatabase:
         await self._db.execute(CREATE_SNAPSHOTS_TABLE)
         await self._db.execute(CREATE_SNAPSHOTS_INDEX)
 
-        # Migrate existing trades table if needed
         for migration in TRADE_MIGRATIONS:
             with contextlib.suppress(Exception):
                 await self._db.execute(migration)
-        # Migrate existing signals table (Phase 2 columns)
         for migration in SIGNAL_MIGRATIONS:
             with contextlib.suppress(Exception):
                 await self._db.execute(migration)
@@ -223,7 +211,6 @@ class TradeDatabase:
         logger.info("database_initialized", path=self.db_path)
 
     async def close(self) -> None:
-        """Close the database connection."""
         if self._db:
             await self._db.close()
             self._db = None
@@ -231,7 +218,6 @@ class TradeDatabase:
 
     @property
     def db(self) -> aiosqlite.Connection:
-        """Get the database connection, raising if not initialized."""
         if self._db is None:
             msg = "Database not initialized. Call init() first."
             raise RuntimeError(msg)
@@ -240,14 +226,7 @@ class TradeDatabase:
     # --- Create / Update ---
 
     async def save_trade(self, trade: Trade) -> None:
-        """Insert a new trade into the database.
-
-        Args:
-            trade: The Trade model to persist.
-
-        Raises:
-            RuntimeError: If database is not initialized.
-        """
+        """Insert a new trade into the database."""
         await self.db.execute(
             """
             INSERT INTO trades (
@@ -262,7 +241,7 @@ class TradeDatabase:
                 trade_unit_id
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?,
@@ -278,19 +257,13 @@ class TradeDatabase:
         logger.info("trade_saved", trade_id=trade.id, symbol=trade.symbol, side=trade.side.value)
 
     async def update_trade(self, trade: Trade) -> None:
-        """Update an existing trade in the database.
-
-        Updates all mutable fields. The trade ID must already exist.
-
-        Args:
-            trade: The Trade model with updated state.
-        """
+        """Update an existing trade in the database."""
         trade.updated_at = datetime.now(UTC)
         await self.db.execute(
             """
             UPDATE trades SET
                 stage = ?, sl_price = ?, remaining_quantity = ?,
-                be_triggered = ?, partial_exit_done = ?,
+                be_triggered = ?, dd_be_triggered = ?, partial_exit_done = ?,
                 trailing_active = ?, trailing_offset = ?,
                 highest_price = ?, lowest_price = ?,
                 updated_at = ?, closed_at = ?, close_reason = ?,
@@ -299,7 +272,8 @@ class TradeDatabase:
                 entry_order_id = ?, sl_order_id = ?,
                 tp1_order_id = ?, tp2_order_id = ?,
                 is_counter_trend = ?,
-                trade_unit_id = ?
+                trade_unit_id = ?,
+                tp1_price = ?
             WHERE id = ?
             """,
             (
@@ -307,6 +281,7 @@ class TradeDatabase:
                 trade.sl_price,
                 trade.remaining_quantity,
                 int(trade.be_triggered),
+                int(trade.dd_be_triggered),
                 int(trade.partial_exit_done),
                 int(trade.trailing_active),
                 trade.trailing_offset,
@@ -325,38 +300,17 @@ class TradeDatabase:
                 trade.tp2_order_id,
                 int(trade.is_counter_trend),
                 trade.trade_unit_id,
+                trade.tp1_price,
                 trade.id,
             ),
         )
         await self.db.commit()
-        logger.debug(
-            "trade_updated",
-            trade_id=trade.id,
-            stage=trade.stage.value,
-        )
+        logger.debug("trade_updated", trade_id=trade.id, stage=trade.stage.value)
 
-    async def update_trade_stage(
-        self,
-        trade: Trade,
-        new_stage: TradeStage,
-    ) -> bool:
-        """Atomically validate and update a trade's stage.
-
-        Reads the current stage from the DB, validates the transition is allowed,
-        and only writes the update if the precondition holds. This prevents
-        race conditions where a trade might skip stages.
-
-        Args:
-            trade: The trade to update (with all other fields already modified).
-            new_stage: The proposed new stage.
-
-        Returns:
-            True if the transition was applied, False if rejected.
-        """
-        # Read current stage from DB (source of truth)
+    async def update_trade_stage(self, trade: Trade, new_stage: TradeStage) -> bool:
+        """Atomically validate and update a trade's stage."""
         cursor = await self.db.execute(
-            "SELECT stage FROM trades WHERE id = ?",
-            (trade.id,),
+            "SELECT stage FROM trades WHERE id = ?", (trade.id,)
         )
         row = await cursor.fetchone()
         if row is None:
@@ -364,7 +318,6 @@ class TradeDatabase:
             return False
 
         current_stage = TradeStage(row["stage"])
-
         if not is_valid_transition(current_stage, new_stage):
             logger.warning(
                 "invalid_stage_transition",
@@ -374,10 +327,8 @@ class TradeDatabase:
             )
             return False
 
-        # Apply the transition
         trade.stage = new_stage
         await self.update_trade(trade)
-
         logger.info(
             "stage_transition",
             trade_id=trade.id,
@@ -389,26 +340,11 @@ class TradeDatabase:
     # --- Read ---
 
     async def get_trade(self, trade_id: str) -> Trade | None:
-        """Fetch a single trade by ID.
-
-        Args:
-            trade_id: The trade's unique identifier.
-
-        Returns:
-            The Trade model if found, None otherwise.
-        """
         cursor = await self.db.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
         row = await cursor.fetchone()
-        if row is None:
-            return None
-        return _row_to_trade(row)
+        return _row_to_trade(row) if row else None
 
     async def get_active_trades(self) -> list[Trade]:
-        """Fetch all trades that are not closed.
-
-        Returns:
-            List of active Trade models, ordered by creation time.
-        """
         cursor = await self.db.execute(
             "SELECT * FROM trades WHERE stage != ? ORDER BY created_at ASC",
             (TradeStage.CLOSED.value,),
@@ -417,14 +353,6 @@ class TradeDatabase:
         return [_row_to_trade(row) for row in rows]
 
     async def get_trades_by_symbol(self, symbol: str) -> list[Trade]:
-        """Fetch all active trades for a given symbol.
-
-        Args:
-            symbol: The trading pair symbol (e.g., 'BTC').
-
-        Returns:
-            List of active trades for the symbol.
-        """
         cursor = await self.db.execute(
             "SELECT * FROM trades WHERE symbol = ? AND stage != ? ORDER BY created_at ASC",
             (symbol.upper(), TradeStage.CLOSED.value),
@@ -433,35 +361,16 @@ class TradeDatabase:
         return [_row_to_trade(row) for row in rows]
 
     async def get_last_closed_trade(self, symbol: str) -> Trade | None:
-        """Fetch the most recently closed trade for a symbol.
-
-        Args:
-            symbol: The trading pair symbol (e.g., 'BTC').
-
-        Returns:
-            The last closed Trade, or None if no closed trades exist.
-        """
         cursor = await self.db.execute(
             "SELECT * FROM trades WHERE symbol = ? AND stage = ? ORDER BY closed_at DESC LIMIT 1",
             (symbol.upper(), TradeStage.CLOSED.value),
         )
         row = await cursor.fetchone()
-        if row is None:
-            return None
-        return _row_to_trade(row)
+        return _row_to_trade(row) if row else None
 
     async def get_all_trades(self, limit: int = 100) -> list[Trade]:
-        """Fetch all trades (including closed), most recent first.
-
-        Args:
-            limit: Maximum number of trades to return.
-
-        Returns:
-            List of Trade models.
-        """
         cursor = await self.db.execute(
-            "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?", (limit,)
         )
         rows = await cursor.fetchall()
         return [_row_to_trade(row) for row in rows]
@@ -469,14 +378,6 @@ class TradeDatabase:
     # --- Delete (for testing) ---
 
     async def delete_trade(self, trade_id: str) -> bool:
-        """Delete a trade by ID. Primarily for testing.
-
-        Args:
-            trade_id: The trade's unique identifier.
-
-        Returns:
-            True if a trade was deleted, False if not found.
-        """
         cursor = await self.db.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
         await self.db.commit()
         return cursor.rowcount > 0
@@ -484,18 +385,15 @@ class TradeDatabase:
     # --- Stats ---
 
     async def count_active_trades(self) -> int:
-        """Count the number of active (non-closed) trades."""
         cursor = await self.db.execute(
-            "SELECT COUNT(*) FROM trades WHERE stage != ?",
-            (TradeStage.CLOSED.value,),
+            "SELECT COUNT(*) FROM trades WHERE stage != ?", (TradeStage.CLOSED.value,)
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
 
-    # --- Signal CRUD (Phase 6) ---
+    # --- Signal CRUD ---
 
     async def save_signal(self, signal: Signal) -> None:
-        """Insert a new signal into the database."""
         await self.db.execute(
             """
             INSERT INTO signals (
@@ -514,7 +412,6 @@ class TradeDatabase:
         logger.info("signal_saved", signal_id=signal.id, symbol=signal.symbol)
 
     async def update_signal(self, signal: Signal) -> None:
-        """Update an existing signal."""
         await self.db.execute(
             """
             UPDATE signals SET
@@ -557,7 +454,6 @@ class TradeDatabase:
         await self.db.commit()
 
     async def get_pending_signals(self) -> list[Signal]:
-        """Fetch all signals in pending_eval status."""
         cursor = await self.db.execute(
             "SELECT * FROM signals WHERE status = ? ORDER BY created_at ASC",
             (SignalStatus.PENDING_EVAL.value,),
@@ -566,30 +462,18 @@ class TradeDatabase:
         return [_row_to_signal(row) for row in rows]
 
     async def get_signal(self, signal_id: str) -> Signal | None:
-        """Fetch a single signal by ID."""
-        cursor = await self.db.execute(
-            "SELECT * FROM signals WHERE id = ?",
-            (signal_id,),
-        )
+        cursor = await self.db.execute("SELECT * FROM signals WHERE id = ?", (signal_id,))
         row = await cursor.fetchone()
         return _row_to_signal(row) if row else None
 
     async def get_all_signals(self, limit: int = 100) -> list[Signal]:
-        """Fetch all signals, most recent first."""
         cursor = await self.db.execute(
-            "SELECT * FROM signals ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM signals ORDER BY created_at DESC LIMIT ?", (limit,)
         )
         rows = await cursor.fetchall()
         return [_row_to_signal(row) for row in rows]
 
-    async def get_recent_signal(
-        self, symbol: str, action: str, after: datetime
-    ) -> Signal | None:
-        """Check if a signal for this symbol+action exists after the cutoff.
-
-        Used as a Symbol-Action Lock to reject rapid duplicate webhooks.
-        """
+    async def get_recent_signal(self, symbol: str, action: str, after: datetime) -> Signal | None:
         cursor = await self.db.execute(
             "SELECT * FROM signals WHERE symbol = ? AND action = ? AND created_at > ? "
             "AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1",
@@ -607,25 +491,12 @@ class TradeDatabase:
     # --- Phase 2: Memory Halt & Queue Management ---
 
     async def expire_stale_signals(self, ttl_minutes: int) -> int:
-        """Bulk-expire pending signals older than the TTL.
-
-        Updates PENDING_EVAL and PENDING_MEMORY signals to EXPIRED_STALE
-        if their created_at is older than now minus ttl_minutes.
-
-        Args:
-            ttl_minutes: Maximum age in minutes before expiration.
-
-        Returns:
-            Number of signals expired.
-        """
         from datetime import timedelta
-
         cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
         cursor = await self.db.execute(
             """
             UPDATE signals SET status = ?, rejection_reason = 'stale_ttl_expired'
-            WHERE status IN (?, ?)
-            AND created_at < ?
+            WHERE status IN (?, ?) AND created_at < ?
             """,
             (
                 SignalStatus.EXPIRED_STALE.value,
@@ -641,7 +512,6 @@ class TradeDatabase:
         return count
 
     async def get_memory_signals(self) -> list[Signal]:
-        """Fetch all signals in PENDING_MEMORY status."""
         cursor = await self.db.execute(
             "SELECT * FROM signals WHERE status = ? ORDER BY created_at ASC",
             (SignalStatus.PENDING_MEMORY.value,),
@@ -650,17 +520,6 @@ class TradeDatabase:
         return [_row_to_signal(row) for row in rows]
 
     async def get_pending_signals_by_symbol(self, symbol: str) -> list[Signal]:
-        """Fetch PENDING_EVAL or PENDING_MEMORY signals for a symbol.
-
-        Used by the cluster countdown reset logic to detect existing
-        pending signals before creating duplicates.
-
-        Args:
-            symbol: The trading pair symbol (e.g., 'BTC').
-
-        Returns:
-            List of pending signals for the symbol.
-        """
         cursor = await self.db.execute(
             """
             SELECT * FROM signals
@@ -676,15 +535,13 @@ class TradeDatabase:
         rows = await cursor.fetchall()
         return [_row_to_signal(row) for row in rows]
 
-    # --- Account Snapshots (T / T-1 Tracker) ---
+    # --- Account Snapshots ---
 
     async def save_snapshot(self, snapshot: AccountSnapshot) -> None:
-        """Insert a new account balance snapshot."""
         await self.db.execute(
             """
-            INSERT INTO account_snapshots (
-                id, timestamp, total_equity, equity_delta, pnl_pct
-            ) VALUES (?, ?, ?, ?, ?)
+            INSERT INTO account_snapshots (id, timestamp, total_equity, equity_delta, pnl_pct)
+            VALUES (?, ?, ?, ?, ?)
             """,
             _snapshot_to_row(snapshot),
         )
@@ -697,31 +554,15 @@ class TradeDatabase:
         )
 
     async def get_latest_snapshot(self) -> AccountSnapshot | None:
-        """Get the most recent account snapshot (T-1).
-
-        Returns:
-            The latest AccountSnapshot, or None if no snapshots exist.
-        """
         cursor = await self.db.execute(
             "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT 1"
         )
         row = await cursor.fetchone()
-        if row is None:
-            return None
-        return _row_to_snapshot(row)
+        return _row_to_snapshot(row) if row else None
 
     async def get_snapshots(self, limit: int = 30) -> list[AccountSnapshot]:
-        """Get recent account snapshots, newest first.
-
-        Args:
-            limit: Maximum number of snapshots to return.
-
-        Returns:
-            List of AccountSnapshot objects ordered by timestamp descending.
-        """
         cursor = await self.db.execute(
-            "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT ?", (limit,)
         )
         rows = await cursor.fetchall()
         return [_row_to_snapshot(row) for row in rows]
@@ -729,24 +570,11 @@ class TradeDatabase:
     # --- Webhook Deduplication ---
 
     async def check_and_store_dedup(self, dedup_key: str) -> bool:
-        """Check if a webhook has already been processed and store the key if not.
-
-        This is an atomic check-and-insert: if the key already exists, returns True
-        (duplicate). If the key is new, inserts it and returns False (not a duplicate).
-
-        Args:
-            dedup_key: Deterministic key for the webhook (e.g. hash of action+symbol+prices).
-
-        Returns:
-            True if this is a DUPLICATE (already seen), False if it's new.
-        """
         cursor = await self.db.execute(
-            "SELECT 1 FROM webhook_dedup WHERE dedup_key = ?",
-            (dedup_key,),
+            "SELECT 1 FROM webhook_dedup WHERE dedup_key = ?", (dedup_key,)
         )
         if await cursor.fetchone():
             return True
-
         await self.db.execute(
             "INSERT INTO webhook_dedup (dedup_key, created_at) VALUES (?, ?)",
             (dedup_key, datetime.now(UTC).isoformat()),
@@ -755,16 +583,7 @@ class TradeDatabase:
         return False
 
     async def cleanup_dedup(self, ttl_seconds: int = 300) -> int:
-        """Remove dedup entries older than the TTL.
-
-        Args:
-            ttl_seconds: How old entries must be before deletion (default 5 minutes).
-
-        Returns:
-            Number of entries removed.
-        """
         cutoff = datetime.now(UTC).isoformat()
-        # SQLite datetime comparison works on ISO strings
         cursor = await self.db.execute(
             "DELETE FROM webhook_dedup WHERE created_at < datetime(?, ?)",
             (cutoff, f"-{ttl_seconds} seconds"),
@@ -790,6 +609,7 @@ def _trade_to_row(trade: Trade) -> tuple:
         trade.quantity,
         trade.remaining_quantity,
         int(trade.be_triggered),
+        int(trade.dd_be_triggered),
         int(trade.partial_exit_done),
         int(trade.trailing_active),
         trade.trailing_offset,
@@ -833,6 +653,7 @@ def _row_to_trade(row: aiosqlite.Row) -> Trade:
         quantity=row["quantity"],
         remaining_quantity=row["remaining_quantity"],
         be_triggered=bool(row["be_triggered"]),
+        dd_be_triggered=bool(row["dd_be_triggered"]) if "dd_be_triggered" in row.keys() else False,
         partial_exit_done=bool(row["partial_exit_done"]),
         trailing_active=bool(row["trailing_active"]),
         trailing_offset=row["trailing_offset"],
@@ -897,7 +718,6 @@ def _signal_to_row(signal: Signal) -> tuple:
 
 def _row_to_signal(row: aiosqlite.Row) -> Signal:
     """Convert a database row to a Signal model."""
-    # Phase 2 columns may not exist on old databases before migration runs
     memory_entered_at = None
     last_memory_slope = None
     memory_eval_count = 0
@@ -972,7 +792,6 @@ def _row_to_signal(row: aiosqlite.Row) -> Signal:
 
 
 def _snapshot_to_row(snapshot: AccountSnapshot) -> tuple:
-    """Convert an AccountSnapshot model to a database row tuple."""
     return (
         snapshot.id,
         snapshot.timestamp.isoformat(),
@@ -983,7 +802,6 @@ def _snapshot_to_row(snapshot: AccountSnapshot) -> tuple:
 
 
 def _row_to_snapshot(row: aiosqlite.Row) -> AccountSnapshot:
-    """Convert a database row to an AccountSnapshot model."""
     return AccountSnapshot(
         id=row["id"],
         timestamp=datetime.fromisoformat(row["timestamp"]),
