@@ -189,6 +189,7 @@ class Trade(BaseModel):
     sl_order_id: str | None = Field(default=None, description="Exchange order ID for stop-loss")
     tp1_order_id: str | None = Field(default=None, description="Exchange order ID for TP1 order")
     tp2_order_id: str | None = Field(default=None, description="Exchange order ID for TP2 order")
+    trade_unit_id: str | None = Field(default=None, description="LBank tradeUnitID, required for SL updates")
 
     # Phase 6: Brain evaluation data
     signal_id: str | None = Field(default=None, description="Linked signal ID")

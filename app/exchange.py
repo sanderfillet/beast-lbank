@@ -97,6 +97,7 @@ class OrderResult:
     avg_price: float | None = None
     fill_price: float | None = None
     filled_size: float | None = None
+    trade_unit_id: str | None = None
     error: str | None = None
 
 
@@ -539,6 +540,7 @@ class LBankClient:
                 avg_price = float(avg_price_str) if avg_price_str else None
                 filled_qty_str = data.get("executedQty")
                 filled_qty = float(filled_qty_str) if filled_qty_str else size
+                trade_unit_id = str(data.get("tradeUnitID" or "")
 
                 logger.info(
                     "order_success",
@@ -556,6 +558,7 @@ class LBankClient:
                     avg_price=avg_price,
                     fill_price=avg_price,
                     filled_size=filled_qty,
+                    trade_unit_id=trade_unit_id or None,
                 )
             else:
                 error = res.get("msg") or str(res)
@@ -575,6 +578,7 @@ class LBankClient:
         size: float,
         new_trigger_price: float,
         old_order_id: str | None = None,  # kept for API compatibility, not used
+        trade_unit_id: str | None = None,
     ) -> OrderResult:
         """Update SL on an existing position.
 
@@ -602,6 +606,7 @@ class LBankClient:
                 "triggerPriceCalType": "0",              # by absolute price
                 "sLTriggerPrice": str(new_trigger_price),
                 "volume": str(size),
+                "tradeUnitID": trade_unit_id or "",
             }
 
             res = self._post(_EP_UPDATE_SL_TP, body, is_trading=True)

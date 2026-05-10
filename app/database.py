@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS trades (
     sl_order_id TEXT,
     tp1_order_id TEXT,
     tp2_order_id TEXT,
+    trade_unit_id TEXT,
     signal_id TEXT,
     ema_slope_value REAL,
     delta_slope_value REAL,
@@ -170,6 +171,7 @@ SIGNAL_MIGRATIONS = [
     "ALTER TABLE signals ADD COLUMN is_fast_market INTEGER",
     "ALTER TABLE signals ADD COLUMN market_type TEXT NOT NULL DEFAULT 'perp'",
     "ALTER TABLE trades ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE trades ADD COLUMN trade_unit_id TEXT",
     "ALTER TABLE signals ADD COLUMN is_counter_trend INTEGER NOT NULL DEFAULT 0",
 ]
 
