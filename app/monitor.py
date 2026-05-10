@@ -296,7 +296,8 @@ class TradeMonitor:
             try:
                 logger.info("startup_reconciliation_sl_check", trade_id=trade.id, symbol=trade.symbol, sl_price=trade.sl_price)
                 sl_result = self._exchange.modify_stop_loss(
-                    trade.symbol, trade.side, actual_size, trade.sl_price
+                    trade.symbol, trade.side, actual_size, trade.sl_price,
+                    trade_unit_id=trade.trade_unit_id,
                 )
                 if sl_result.success:
                     logger.info("startup_reconciliation_sl_refreshed", trade_id=trade.id, symbol=trade.symbol, sl_price=trade.sl_price)
@@ -540,6 +541,7 @@ class TradeMonitor:
 
         quantity: float | None = None
         order_id: str | None = None
+        trade_unit_id: str | None = None
         fill_price = sig.eval_price or sig.entry_price
 
         if self._exchange and self._exchange.is_connected:
@@ -593,6 +595,7 @@ class TradeMonitor:
                 return
 
             order_id = result.order_id
+            trade_unit_id = result.trade_unit_id
             if result.avg_price:
                 fill_price = result.avg_price
                 # Recalculate exits with actual fill price
@@ -627,6 +630,7 @@ class TradeMonitor:
             tp2_price=exits.tp2_price,
             quantity=quantity,
             entry_order_id=order_id,
+            trade_unit_id=trade_unit_id,
             sl_order_id=None,       # position-level SL, no order ID
             tp1_order_id=None,      # TP1 handled in software
             tp2_order_id=None,      # TP2 set at position level, no order ID
@@ -662,6 +666,7 @@ class TradeMonitor:
             tp1_price=exits.tp1_price,
             tp2_price=exits.tp2_price,
             entry_order_id=order_id,
+            trade_unit_id=trade_unit_id,
             is_counter_trend=is_counter_trend,
             half_size_reason=half_size_reason,
         )
