@@ -430,7 +430,7 @@ class LBankClient:
                     unrealized_pnl=float(pos.get("unrealizedProfit", 0)),
                     leverage=int(float(pos.get("leverage", 1))),
                     position_id=str(pos.get("positionID", "")),
-                    trade_unit_id=str(pos.get("tradeUnitID", "")),
+                    trade_unit_id=str(pos.get("tradeUnitID"), ""),
                 )
             return None
         except Exception as e:
