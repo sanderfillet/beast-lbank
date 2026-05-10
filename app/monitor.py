@@ -185,6 +185,8 @@ class TradeMonitor:
         _prev_sl = trade.sl_price
         _prev_high = trade.highest_price
         _prev_low = trade.lowest_price
+        _prev_tp1 = trade.tp1_price
+        _prev_dd_be = trade.dd_be_triggered
 
         sym_settings = SymbolSettings(self._settings, trade.symbol)
         result = evaluate_trade(trade, mark_price, sym_settings, self._exchange)
@@ -199,7 +201,9 @@ class TradeMonitor:
             trade.sl_price != _prev_sl
             or trade.highest_price != _prev_high
             or trade.lowest_price != _prev_low
-        ):
+            or trade.tp1_price != _prev_tp1
+            or trade.dd_be_triggered != _prev_dd_be
+	):
             await self._database.update_trade(trade)
 
         if result.error:
