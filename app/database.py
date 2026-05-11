@@ -273,7 +273,8 @@ class TradeDatabase:
                 tp1_order_id = ?, tp2_order_id = ?,
                 is_counter_trend = ?,
                 trade_unit_id = ?,
-                tp1_price = ?
+                tp1_price = ?,
+		tp2_price = ?
             WHERE id = ?
             """,
             (
@@ -301,6 +302,7 @@ class TradeDatabase:
                 int(trade.is_counter_trend),
                 trade.trade_unit_id,
                 trade.tp1_price,
+		trade.tp2_price,
                 trade.id,
             ),
         )
