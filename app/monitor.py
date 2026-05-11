@@ -296,25 +296,6 @@ class TradeMonitor:
                         f"{trade.symbol}: DB expects {expected_size} but exchange has {actual_size}"
                     )
 
-            # SL check — re-place if missing using modify_stop_loss
-            try:
-                logger.info("startup_reconciliation_sl_check", trade_id=trade.id, symbol=trade.symbol, sl_price=trade.sl_price)
-                sl_result = self._exchange.modify_stop_loss(
-                    trade.symbol, trade.side, actual_size, trade.sl_price,
-                    trade_unit_id=trade.trade_unit_id,
-                )
-                if sl_result.success:
-                    logger.info("startup_reconciliation_sl_refreshed", trade_id=trade.id, symbol=trade.symbol, sl_price=trade.sl_price)
-                else:
-                    logger.error("startup_reconciliation_sl_failed", trade_id=trade.id, error=sl_result.error)
-                    if self._notifier:
-                        await self._notifier.send_message(
-                            f"⚠️ <b>SL Refresh Failed</b>\n"
-                            f"{trade.symbol}: Could not set SL at {trade.sl_price:.2f} — {sl_result.error}"
-                        )
-            except Exception:
-                logger.exception("startup_reconciliation_sl_check_error", trade_id=trade.id)
-
         logger.info("startup_reconciliation_complete", trades_checked=len(trades), symbols=list(tracked_symbols))
 
     async def _close_trade_for_flip(self, trade: Trade) -> None:
