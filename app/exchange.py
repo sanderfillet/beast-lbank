@@ -579,6 +579,7 @@ class LBankClient:
         new_trigger_price: float,
         old_order_id: str | None = None,  # kept for API compatibility, not used
         trade_unit_id: str | None = None,
+        tp_trigger_price: float | None = None,
     ) -> OrderResult:
         """Update SL on an existing position.
 
@@ -607,6 +608,7 @@ class LBankClient:
                 "sLTriggerPrice": str(new_trigger_price),
                 "volume": str(size),
                 "tradeUnitID": trade_unit_id or "",
+                **({"tPTriggerPrice": str(tp_trigger_price), "tPPrice": ""} if tp_trigger_price else {}),
             }
 
             res = self._post(_EP_UPDATE_SL_TP, body, is_trading=True)

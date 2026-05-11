@@ -189,18 +189,30 @@ def _handle_entry(
         if dd_hit:
             fee_mult_dd = (settings.exchange_fee_pct * 2) / 100
             if trade.side == TradeSide.LONG:
-                new_tp1 = round(trade.entry_price * (1 + fee_mult_dd), 5)
+                be_price = round(trade.entry_price * (1 + fee_mult_dd), 2)
             else:
-                new_tp1 = round(trade.entry_price * (1 - fee_mult_dd), 5)
-            trade.tp1_price      = new_tp1
+                be_price = round(trade.entry_price * (1 - fee_mult_dd), 2)
+
+            if exchange and exchange.is_connected:
+                exchange.modify_stop_loss(
+                    symbol=trade.symbol,
+                    side=trade.side,
+                    size=trade.remaining_quantity,
+                    new_trigger_price=trade.sl_price,
+                    trade_unit_id=trade.trade_unit_id,
+                    tp_trigger_price=be_price,
+                )
+
+            trade.tp1_price = be_price
+            trade.tp2_price = be_price
             trade.dd_be_triggered = True
             logger.info(
-                "dd_be_tp1_moved",
-                trade_id   = trade.id,
-                symbol     = trade.symbol,
-                mark_price = mark_price,
-                new_tp1    = new_tp1,
-                dd_pct     = settings.dd_be_trigger_pct,
+                "dd_be_triggered",
+                trade_id=trade.id,
+                symbol=trade.symbol,
+                mark_price=mark_price,
+                be_price=be_price,
+                dd_pct=settings.dd_be_trigger_pct,
             )
 
     # ── Normal BE trigger ─────────────────────────────────────────────────────
@@ -241,7 +253,7 @@ def _handle_breakeven(
     if not _check_trigger(mark_price, trade.entry_price, settings.trade_tp1_trigger_pct, trade.side):
         return StageResult()
 
-    partial_size = round(trade.quantity * settings.partial_exit_fraction, 8)
+    partial_size = trade.remaining_quantity if trade.dd_be_triggered else round(trade.quantity * settings.partial_exit_fraction, 8)
 
     # Size floor: ensure partial close meets minimum notional
     min_notional = settings.min_close_notional_usd
