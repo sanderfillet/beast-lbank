@@ -605,7 +605,7 @@ class LBankClient:
                 "posiDirection": self._posi_direction(side),
                 "triggerPriceType": "0",                 # latest price
                 "triggerPriceCalType": "0",              # by absolute price
-                "sLTriggerPrice": str(new_trigger_price),
+		**({"sLTriggerPrice": str(new_trigger_price)} if not tp_trigger_price else {}),
                 "volume": str(size),
                 "tradeUnitID": trade_unit_id or "",
                 **({"tPTriggerPrice": str(tp_trigger_price), "tPPrice": ""} if tp_trigger_price else {}),
