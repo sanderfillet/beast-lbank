@@ -601,7 +601,7 @@ class LBankClient:
                 "exchangeID": _EXCHANGE_ID,
                 "instrumentID": contract_symbol,
                 "direction": "1" if is_long else "0",  # closing direction
-                "offsetFlag": "1",                       # close position
+                "offsetFlag": "0" if tp_trigger_price else "1",                       # close position
                 "posiDirection": self._posi_direction(side),
                 "triggerPriceType": "0",                 # latest price
                 "triggerPriceCalType": "0",              # by absolute price
@@ -611,7 +611,9 @@ class LBankClient:
                 **({"tPTriggerPrice": str(tp_trigger_price), "tPPrice": ""} if tp_trigger_price else {}),
             }
 
-            res = self._post(_EP_UPDATE_SL_TP, body, is_trading=True)
+            logger.info("modify_sl_tp_body", symbol=symbol, body={k: v for k, v in body.items() if k not in ("sign", "api_key")})
+            res = self._post(_EP_UPDATE_SL_TP, body, is_trading=True) 
+            logger.info("modify_sl_tp_response", symbol=symbol, res=res)
 
             if self._ok(res):
                 logger.info(
