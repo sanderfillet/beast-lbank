@@ -1,7 +1,7 @@
 {
     "BTC": {
         "trade_initial_sl_pct": 1.9,
-        "trade_be_trigger_pct": 1.9,
+        "trade_be_trigger_pct": 1.7,
         "trade_tp1_trigger_pct": 1.0,
         "trade_trail_active_pct": 1.7,
         "trade_trail_lock_pct": 0.7,
@@ -11,8 +11,8 @@
         "max_ema_gap_pct": 5.0,
         "min_ema_gap_pct": 0.0,
         "max_chase_pct": 0.8,
-        "size_usd": 30.0,
-        "dd_be_trigger_pct":0.4,
+        "size_usd": 100.0,
+        "dd_be_trigger_pct":0.4
     },
     "ETH": {
         "trade_initial_sl_pct": 2.5,

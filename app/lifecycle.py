@@ -194,6 +194,7 @@ def _handle_entry(
                 be_price = round(trade.entry_price * (1 - fee_mult_dd), 2)
 
             if exchange and exchange.is_connected:
+                
                 exchange.modify_stop_loss(
                     symbol=trade.symbol,
                     side=trade.side,

@@ -601,7 +601,7 @@ class LBankClient:
                 "exchangeID": _EXCHANGE_ID,
                 "instrumentID": contract_symbol,
                 "direction": "1" if is_long else "0",  # closing direction
-                "offsetFlag": "0" if tp_trigger_price else "1",                       # close position
+                "offsetFlag": "1",                       # close position
                 "posiDirection": self._posi_direction(side),
                 "triggerPriceType": "0",                 # latest price
                 "triggerPriceCalType": "0",              # by absolute price
